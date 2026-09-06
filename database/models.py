@@ -1692,3 +1692,327 @@ def listar_organizacoes_consultor(
 
     finally:
         conn.close()
+# ==========================================================
+# PIQUETES
+# ==========================================================
+
+def cadastrar_piquete(
+    fazenda_id,
+    nome,
+    identificacao=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO piquetes (
+                fazenda_id,
+                nome,
+                identificacao
+            )
+            VALUES (?, ?, ?)
+            """,
+            (
+                fazenda_id,
+                nome,
+                identificacao
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_piquetes_fazenda(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                p.id,
+                p.fazenda_id,
+                p.nome,
+                p.identificacao,
+                p.ativo,
+                p.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM piquetes AS p
+
+            INNER JOIN fazendas AS f
+                ON f.id = p.fazenda_id
+
+            WHERE
+                p.fazenda_id = ?
+                AND p.ativo = 1
+                AND f.ativo = 1
+
+            ORDER BY p.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def listar_piquetes_fazenda_todos(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                p.id,
+                p.fazenda_id,
+                p.nome,
+                p.identificacao,
+                p.ativo,
+                p.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM piquetes AS p
+
+            INNER JOIN fazendas AS f
+                ON f.id = p.fazenda_id
+
+            WHERE
+                p.fazenda_id = ?
+
+            ORDER BY p.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def atualizar_piquete(
+    piquete_id,
+    fazenda_id,
+    nome,
+    identificacao=None
+):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            UPDATE piquetes
+
+            SET
+                fazenda_id = ?,
+                nome = ?,
+                identificacao = ?
+
+            WHERE id = ?
+            """,
+            (
+                fazenda_id,
+                nome,
+                identificacao,
+                piquete_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def desativar_piquete(
+    piquete_id
+):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            UPDATE piquetes
+            SET ativo = 0
+            WHERE id = ?
+            """,
+            (piquete_id,)
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def reativar_piquete(
+    piquete_id
+):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            UPDATE piquetes
+            SET ativo = 1
+            WHERE id = ?
+            """,
+            (piquete_id,)
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def buscar_piquete_por_id(
+    piquete_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                p.id,
+                p.fazenda_id,
+                p.nome,
+                p.identificacao,
+                p.ativo,
+                p.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM piquetes AS p
+
+            INNER JOIN fazendas AS f
+                ON f.id = p.fazenda_id
+
+            WHERE p.id = ?
+
+            LIMIT 1
+            """,
+            (piquete_id,)
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def usuario_tem_acesso_fazenda(
+    usuario_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        registro = conn.execute(
+            """
+            SELECT 1
+
+            FROM usuarios_fazendas
+
+            WHERE
+                usuario_id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+
+            LIMIT 1
+            """,
+            (
+                usuario_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        return registro is not None
+
+    finally:
+        conn.close()
+
+# ==========================================================
+# USUÁRIOS DE UMA FAZENDA DA CARTEIRA DO CONSULTOR
+# ==========================================================
+
+def listar_usuarios_consultor_fazenda(
+    consultor_id,
+    fazenda_id,
+    incluir_inativos=False
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        filtro_ativo = ""
+
+        if not incluir_inativos:
+            filtro_ativo = "AND u.ativo = 1"
+
+        cursor.execute(
+            f"""
+            SELECT DISTINCT
+                u.id,
+                u.nome,
+                u.login,
+                u.perfil_sistema,
+                u.ativo,
+                u.criado_em,
+                u.desativado_em,
+                u.desativado_por
+
+            FROM usuarios AS u
+
+            INNER JOIN usuarios_fazendas AS uf
+                ON uf.usuario_id = u.id
+
+            INNER JOIN responsaveis_fazenda AS rf
+                ON rf.fazenda_id = uf.fazenda_id
+
+            WHERE
+                rf.consultor_id = ?
+                AND rf.fazenda_id = ?
+                AND uf.fazenda_id = ?
+                AND rf.ativo = 1
+                AND uf.ativo = 1
+                AND u.perfil_sistema = 'USUARIO'
+                {filtro_ativo}
+
+            ORDER BY u.nome
+            """,
+            (
+                consultor_id,
+                fazenda_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()

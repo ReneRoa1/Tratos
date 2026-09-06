@@ -6,6 +6,7 @@ from screens.login import tela_login
 from screens.layout import layout_principal
 from screens.organizacoes import tela_organizacoes
 from screens.fazendas import tela_fazendas
+from screens.piquetes import tela_piquetes
 from screens.usuarios import tela_usuarios
 from screens.consultores import tela_consultores
 from screens.carteira_consultores import (
@@ -23,7 +24,7 @@ def main(page: ft.Page):
     page.padding = 0
 
     area_conteudo = None
-
+    atualizar_seletor_fazendas = None
     # ======================================================
     # LOGIN
     # ======================================================
@@ -52,12 +53,17 @@ def main(page: ft.Page):
     def abrir_sistema():
 
         nonlocal area_conteudo
+        nonlocal atualizar_seletor_fazendas
 
         page.clean()
 
         page.padding = 0
 
-        layout, area_conteudo = layout_principal(
+        (
+            layout,
+            area_conteudo,
+            atualizar_seletor_fazendas
+        ) = layout_principal(
             page=page,
             navegar=navegar,
             sair=mostrar_login
@@ -107,9 +113,20 @@ def main(page: ft.Page):
         elif rota == "fazendas":
 
             area_conteudo.controls.append(
-                tela_fazendas(page)
+                tela_fazendas(
+                    page,
+                    atualizar_seletor_fazendas
+                )
             )
+        # ==========================================
+        # PIQUETES
+        # ==========================================
 
+        elif rota == "piquetes":
+
+            area_conteudo.controls.append(
+                tela_piquetes(page)
+            )
         # ==========================================
         # USUÁRIOS
         # ==========================================

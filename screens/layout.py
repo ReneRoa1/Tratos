@@ -24,19 +24,37 @@ def layout_principal(
         width=300
     )
 
-    for fazenda in sessao.fazendas:
+    def atualizar_seletor_fazendas():
 
-        seletor_fazenda.options.append(
-            ft.DropdownOption(
-                key=str(fazenda["fazenda_id"]),
-                text=fazenda["fazenda_nome"]
+        seletor_fazenda.options.clear()
+
+        for fazenda in sessao.fazendas:
+
+            seletor_fazenda.options.append(
+                ft.DropdownOption(
+                    key=str(
+                        fazenda["fazenda_id"]
+                    ),
+                    text=(
+                        fazenda["fazenda_nome"]
+                    )
+                )
             )
-        )
 
-    if sessao.fazenda_atual_id is not None:
-        seletor_fazenda.value = str(
-            sessao.fazenda_atual_id
-        )
+        if sessao.fazenda_atual_id is not None:
+
+            seletor_fazenda.value = str(
+                sessao.fazenda_atual_id
+            )
+
+        else:
+
+            seletor_fazenda.value = None
+
+        page.update()
+
+
+    atualizar_seletor_fazendas()
 
     def alterar_fazenda(e):
 
@@ -369,11 +387,15 @@ def layout_principal(
 
     )
 
-    return ft.Column(
-        controls=[
-            topo,
-            ft.Divider(height=1),
-            corpo
-        ],
-        expand=True
-    ), area_conteudo
+    return (
+        ft.Column(
+            controls=[
+                topo,
+                ft.Divider(height=1),
+                corpo
+            ],
+            expand=True
+        ),
+        area_conteudo,
+        atualizar_seletor_fazendas
+    )

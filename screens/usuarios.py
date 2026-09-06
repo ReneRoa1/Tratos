@@ -30,7 +30,8 @@ from database.models import (
     reativar_usuario,
 
     consultor_tem_acesso_usuario,
-    consultor_tem_acesso_fazenda
+    consultor_tem_acesso_fazenda,
+    listar_usuarios_consultor_fazenda,
 )
 
 from services.auth import (
@@ -99,10 +100,17 @@ def tela_usuarios(page: ft.Page):
 
         elif sessao.perfil_sistema == "CONSULTOR":
 
-            usuarios = listar_usuarios_consultor(
-                consultor_id=sessao.usuario_id,
-                incluir_inativos=mostrar_inativos.value
-            )
+            if sessao.fazenda_atual_id is None:
+
+                usuarios = []
+
+            else:
+
+                usuarios = listar_usuarios_consultor_fazenda(
+                    consultor_id=sessao.usuario_id,
+                    fazenda_id=sessao.fazenda_atual_id,
+                    incluir_inativos=mostrar_inativos.value
+                )
 
         else:
 

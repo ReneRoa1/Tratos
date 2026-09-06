@@ -9,7 +9,10 @@ from database.models import (
 )
 
 from services.auth import verificar_senha
-from services.sessao import sessao
+from services.sessao import (
+    sessao,
+    recarregar_fazendas_sessao,
+)
 
 
 def tela_login(page: ft.Page, ao_entrar):
@@ -104,79 +107,7 @@ def tela_login(page: ft.Page, ao_entrar):
         # FAZENDAS DISPONÍVEIS
         # ======================================
 
-        if sessao.perfil_sistema == "ADMIN":
-
-            todas_fazendas = listar_fazendas()
-
-            sessao.fazendas = []
-
-            for fazenda in todas_fazendas:
-
-                sessao.fazendas.append({
-                    "fazenda_id": fazenda["id"],
-                    "fazenda_nome": fazenda["nome"],
-                    "perfil": "LEITURA",
-
-                    "organizacao_nome":
-                        fazenda["organizacao_nome"],
-
-                    "organizacao_nome_fantasia":
-                        fazenda["organizacao_nome_fantasia"]
-                })
-
-
-        elif sessao.perfil_sistema == "CONSULTOR":
-
-            fazendas_consultor = (
-                listar_fazendas_consultor(
-                    usuario["id"]
-                )
-            )
-
-            sessao.fazendas = []
-
-            for fazenda in fazendas_consultor:
-
-                sessao.fazendas.append({
-                    "fazenda_id":
-                        fazenda["fazenda_id"],
-
-                    "fazenda_nome":
-                        fazenda["fazenda_nome"],
-
-                    "perfil":
-                        "CONSULTOR",
-
-                    "organizacao_nome":
-                        fazenda["organizacao_nome"],
-
-                    "organizacao_nome_fantasia":
-                        fazenda["organizacao_nome_fantasia"]
-                })
-
-
-        else:
-
-            sessao.fazendas = list(
-                listar_fazendas_usuario(
-                    usuario["id"]
-                )
-            )
-
-
-        # ======================================
-        # SE HOUVER APENAS UMA FAZENDA
-        # ======================================
-
-        if len(sessao.fazendas) == 1:
-
-            fazenda = sessao.fazendas[0]
-
-            sessao.selecionar_fazenda(
-                fazenda_id=fazenda["fazenda_id"],
-                fazenda_nome=fazenda["fazenda_nome"],
-                perfil=fazenda["perfil"]
-            )
+        recarregar_fazendas_sessao()
 
 
         # ======================================

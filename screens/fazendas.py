@@ -15,11 +15,17 @@ from database.models import (
     consultor_tem_acesso_fazenda
 )
 
-from services.sessao import sessao
+from services.sessao import (
+    sessao,
+    recarregar_fazendas_sessao,
+)
 from services.identificadores import codigo_fazenda
 
 
-def tela_fazendas(page: ft.Page):
+def tela_fazendas(
+    page: ft.Page,
+    atualizar_seletor_fazendas=None
+):
 
     # ======================================================
     # CAMPOS DE NOVA FAZENDA
@@ -129,6 +135,12 @@ def tela_fazendas(page: ft.Page):
             fazenda_id=fazenda_id,
             papel="PRINCIPAL"
         )
+        # Atualiza as fazendas autorizadas da sessão
+        recarregar_fazendas_sessao()
+
+        # Atualiza imediatamente o seletor superior
+        if atualizar_seletor_fazendas is not None:
+            atualizar_seletor_fazendas()
 
         campo_nome.value = ""
         campo_identificacao.value = ""
