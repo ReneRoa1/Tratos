@@ -91,30 +91,25 @@ def tela_usuarios(page: ft.Page):
     def pode_gerenciar_usuario(usuario_id):
 
         if sessao.perfil_sistema == "ADMIN":
+            return True
 
-            usuarios = (
-                listar_usuarios_todos()
-                if mostrar_inativos.value
-                else listar_usuarios()
-            )
-
-        elif sessao.perfil_sistema == "CONSULTOR":
+        if sessao.perfil_sistema == "CONSULTOR":
 
             if sessao.fazenda_atual_id is None:
+                return False
 
-                usuarios = []
+            usuarios = listar_usuarios_consultor_fazenda(
+                consultor_id=sessao.usuario_id,
+                fazenda_id=sessao.fazenda_atual_id,
+                incluir_inativos=True
+            )
 
-            else:
+            return any(
+                usuario["id"] == usuario_id
+                for usuario in usuarios
+            )
 
-                usuarios = listar_usuarios_consultor_fazenda(
-                    consultor_id=sessao.usuario_id,
-                    fazenda_id=sessao.fazenda_atual_id,
-                    incluir_inativos=mostrar_inativos.value
-                )
-
-        else:
-
-            usuarios = []
+        return False
     # ======================================================
     # CADASTRO
     # ======================================================
@@ -1147,10 +1142,17 @@ def tela_usuarios(page: ft.Page):
 
         elif sessao.perfil_sistema == "CONSULTOR":
 
-            usuarios = listar_usuarios_consultor(
-                consultor_id=sessao.usuario_id,
-                incluir_inativos=mostrar_inativos.value
-            )
+            if sessao.fazenda_atual_id is None:
+
+                usuarios = []
+
+            else:
+
+                usuarios = listar_usuarios_consultor_fazenda(
+                    consultor_id=sessao.usuario_id,
+                    fazenda_id=sessao.fazenda_atual_id,
+                    incluir_inativos=mostrar_inativos.value
+                )
 
         else:
 
@@ -1160,7 +1162,7 @@ def tela_usuarios(page: ft.Page):
 
             lista_usuarios.controls.append(
                 ft.Text(
-                    "Nenhum usuário encontrado."
+                    "Nenhum usuário encontrado na fazenda selecionada."
                 )
             )
 
@@ -1182,6 +1184,14 @@ def tela_usuarios(page: ft.Page):
             fazendas = listar_fazendas_usuario(
                 usuario["id"]
             )
+            if sessao.perfil_sistema == "CONSULTOR":
+
+                fazendas = [
+                    fazenda
+                    for fazenda in fazendas
+                    if fazenda["fazenda_id"]
+                    == sessao.fazenda_atual_id
+                ]
 
             controles = [
 
