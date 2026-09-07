@@ -4998,19 +4998,13 @@ def registrar_trato_planejado(
     try:
         cursor = conn.cursor()
 
-        # --------------------------------------------------
-        # Validações básicas
-        # --------------------------------------------------
-
         if not resultado_calculo:
             raise ValueError(
                 "Resultado do cálculo não informado."
             )
 
-        ingredientes = (
-            resultado_calculo.get(
-                "ingredientes"
-            )
+        ingredientes = resultado_calculo.get(
+            "ingredientes"
         )
 
         if not ingredientes:
@@ -5018,9 +5012,9 @@ def registrar_trato_planejado(
                 "O trato não possui ingredientes."
             )
 
-        # --------------------------------------------------
-        # Cria cabeçalho do trato
-        # --------------------------------------------------
+        # ==================================================
+        # CABEÇALHO DO TRATO
+        # ==================================================
 
         cursor.execute(
             """
@@ -5060,7 +5054,10 @@ def registrar_trato_planejado(
             VALUES (
                 ?, ?, ?, ?,
                 ?,
+                ?, ?,
+                ?,
                 ?, ?, ?,
+                ?,
                 ?,
                 ?, ?, ?,
                 ?, ?,
@@ -5080,6 +5077,24 @@ def registrar_trato_planejado(
                 resultado_calculo[
                     "consumo_ms_animal_dia"
                 ],
+
+                resultado_calculo[
+                    "necessidade_ms_padrao_kg"
+                ],
+
+                resultado_calculo.get(
+                    "leitura_cocho_id"
+                ),
+
+                resultado_calculo.get(
+                    "nota_cocho"
+                ),
+
+                resultado_calculo.get(
+                    "ajuste_cocho_percentual",
+                    0.0
+                ),
+
                 resultado_calculo[
                     "necessidade_ms_lote_kg"
                 ],
@@ -5091,9 +5106,11 @@ def registrar_trato_planejado(
                 resultado_calculo[
                     "densidade_kg_m3"
                 ],
+
                 resultado_calculo[
                     "volume_util_m3"
                 ],
+
                 resultado_calculo[
                     "capacidade_misturador_kg"
                 ],
@@ -5101,6 +5118,7 @@ def registrar_trato_planejado(
                 resultado_calculo[
                     "numero_cargas"
                 ],
+
                 resultado_calculo[
                     "quantidade_media_por_carga_kg"
                 ],
@@ -5111,121 +5129,87 @@ def registrar_trato_planejado(
 
         trato_id = cursor.lastrowid
 
-        # --------------------------------------------------
-        # Salva snapshot dos ingredientes
-        # --------------------------------------------------
+        # ==================================================
+        # ITENS DO TRATO
+        # ==================================================
 
         for ingrediente in ingredientes:
 
             cursor.execute(
                 """
-                INSERT INTO tratos_planejados (
+                INSERT INTO trato_planejado_itens (
 
-                    fazenda_id,
-                    lote_id,
-                    dieta_id,
-                    misturador_id,
+                    trato_planejado_id,
 
-                    data_trato,
+                    alimento_id,
+                    alimento_nome,
 
-                    numero_animais,
-                    consumo_ms_animal_dia,
+                    ordem_carregamento,
 
-                    necessidade_ms_padrao_kg,
+                    inclusao_ms_percentual,
 
-                    leitura_cocho_id,
-                    nota_cocho,
-                    ajuste_cocho_percentual,
+                    materia_seca_percentual,
+                    data_ms,
 
-                    necessidade_ms_lote_kg,
+                    quantidade_ms_kg,
+                    quantidade_mn_kg,
 
-                    total_materia_natural_kg,
-
-                    densidade_kg_m3,
-                    volume_util_m3,
-                    capacidade_misturador_kg,
-
-                    numero_cargas,
-                    quantidade_media_por_carga_kg,
-
-                    status,
-                    observacoes
+                    quantidade_ms_por_carga_kg,
+                    quantidade_mn_por_carga_kg
                 )
 
                 VALUES (
-                    ?, ?, ?, ?,
                     ?,
                     ?, ?,
                     ?,
-                    ?, ?, ?,
                     ?,
-                    ?,
-                    ?, ?, ?,
                     ?, ?,
-                    'PLANEJADO',
-                    ?
+                    ?, ?,
+                    ?, ?
                 )
                 """,
                 (
-                    resultado_calculo["fazenda_id"],
-                    resultado_calculo["lote_id"],
-                    resultado_calculo["dieta_id"],
-                    resultado_calculo["misturador_id"],
+                    trato_id,
 
-                    resultado_calculo["data_referencia"],
-
-                    resultado_calculo["numero_animais"],
-
-                    resultado_calculo[
-                        "consumo_ms_animal_dia"
+                    ingrediente[
+                        "alimento_id"
                     ],
 
-                    resultado_calculo[
-                        "necessidade_ms_padrao_kg"
+                    ingrediente[
+                        "alimento_nome"
                     ],
 
-                    resultado_calculo.get(
-                        "leitura_cocho_id"
-                    ),
-
-                    resultado_calculo.get(
-                        "nota_cocho"
-                    ),
-
-                    resultado_calculo.get(
-                        "ajuste_cocho_percentual",
-                        0.0
-                    ),
-
-                    resultado_calculo[
-                        "necessidade_ms_lote_kg"
+                    ingrediente[
+                        "ordem_carregamento"
                     ],
 
-                    resultado_calculo[
-                        "total_materia_natural_kg"
+                    ingrediente[
+                        "inclusao_ms_percentual"
                     ],
 
-                    resultado_calculo[
-                        "densidade_kg_m3"
+                    ingrediente[
+                        "materia_seca_percentual"
                     ],
 
-                    resultado_calculo[
-                        "volume_util_m3"
+                    ingrediente[
+                        "data_ms"
                     ],
 
-                    resultado_calculo[
-                        "capacidade_misturador_kg"
+                    ingrediente[
+                        "quantidade_ms_kg"
                     ],
 
-                    resultado_calculo[
-                        "numero_cargas"
+                    ingrediente[
+                        "quantidade_mn_kg"
                     ],
 
-                    resultado_calculo[
-                        "quantidade_media_por_carga_kg"
+                    ingrediente[
+                        "quantidade_ms_por_carga_kg"
                     ],
 
-                    observacoes
+                    ingrediente[
+                        "quantidade_mn_por_carga_kg"
+                    ]
                 )
             )
 
