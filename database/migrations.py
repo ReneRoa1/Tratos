@@ -473,6 +473,110 @@ def criar_tabelas():
             )
         );
     """)
+        # ======================================================
+    # HISTÓRICO DE CONSUMO DO LOTE
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS consumo_lote (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            lote_id INTEGER NOT NULL,
+
+            dieta_id INTEGER NOT NULL,
+
+            consumo_ms_animal_dia REAL NOT NULL,
+
+            data_inicio TEXT NOT NULL,
+
+            data_fim TEXT,
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (lote_id)
+                REFERENCES lotes(id),
+
+            FOREIGN KEY (dieta_id)
+                REFERENCES dietas(id)
+        );
+    """)
+        # ======================================================
+    # MISTURADORES
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS misturadores (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            nome TEXT NOT NULL,
+
+            capacidade_m3 REAL NOT NULL,
+
+            capacidade_util_percentual REAL NOT NULL DEFAULT 100,
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            observacoes TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id)
+        );
+    """)
+        # ======================================================
+    # CALIBRAÇÕES DOS MISTURADORES
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS calibracoes_misturador (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            misturador_id INTEGER NOT NULL,
+
+            dieta_id INTEGER NOT NULL,
+
+            densidade_kg_m3 REAL NOT NULL,
+
+            data_vigencia TEXT NOT NULL,
+
+            observacoes TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (misturador_id)
+                REFERENCES misturadores(id),
+
+            FOREIGN KEY (dieta_id)
+                REFERENCES dietas(id),
+
+            UNIQUE (
+                misturador_id,
+                dieta_id,
+                data_vigencia
+            )
+        );
+    """)
     # ======================================================
     # CAMPOS DE AUDITORIA
     # ======================================================

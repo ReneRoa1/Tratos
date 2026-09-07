@@ -3891,3 +3891,1025 @@ def arquivar_dieta(
 
     finally:
         conn.close()
+# ==========================================================
+# CONSUMO DO LOTE
+# ==========================================================
+
+def definir_consumo_lote(
+    fazenda_id,
+    lote_id,
+    dieta_id,
+    consumo_ms_animal_dia,
+    data_inicio
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Valida o lote
+        # --------------------------------------------------
+
+        lote = cursor.execute(
+            """
+            SELECT
+                id,
+                numero_animais,
+                status
+            FROM lotes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "O lote não pertence à fazenda selecionada."
+            )
+
+        if lote["status"] != "ATIVO":
+            raise ValueError(
+                "Não é possível definir consumo "
+                "para um lote encerrado."
+            )
+
+        # --------------------------------------------------
+        # Valida a dieta
+        # --------------------------------------------------
+
+        dieta = cursor.execute(
+            """
+            SELECT
+                id,
+                nome,
+                versao,
+                status
+            FROM dietas
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                dieta_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if dieta is None:
+            raise ValueError(
+                "A dieta não pertence à fazenda selecionada."
+            )
+
+        if dieta["status"] != "ATIVA":
+            raise ValueError(
+                "Somente uma dieta ativa pode ser "
+                "associada como novo consumo do lote."
+            )
+
+        # --------------------------------------------------
+        # Valida consumo
+        # --------------------------------------------------
+
+        try:
+            consumo = float(
+                consumo_ms_animal_dia
+            )
+
+        except (TypeError, ValueError):
+            raise ValueError(
+                "Informe um consumo válido."
+            )
+
+        if consumo <= 0:
+            raise ValueError(
+                "O consumo de matéria seca deve ser "
+                "maior que zero."
+            )
+
+        # --------------------------------------------------
+        # Busca configuração atual
+        # --------------------------------------------------
+
+        atual = cursor.execute(
+            """
+            SELECT
+                id,
+                dieta_id,
+                consumo_ms_animal_dia,
+                data_inicio
+            FROM consumo_lote
+            WHERE
+                lote_id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if atual is not None:
+
+            if data_inicio < atual["data_inicio"]:
+                raise ValueError(
+                    "A nova vigência não pode começar "
+                    "antes da configuração atual."
+                )
+
+            # --------------------------------------------------
+            # Evita criar registro idêntico
+            # --------------------------------------------------
+
+            if (
+                atual["dieta_id"] == dieta_id
+                and abs(
+                    atual["consumo_ms_animal_dia"]
+                    - consumo
+                ) <= 0.0001
+            ):
+                raise ValueError(
+                    "Este lote já possui esta dieta "
+                    "e este consumo como configuração atual."
+                )
+
+            # --------------------------------------------------
+            # Fecha configuração anterior
+            # --------------------------------------------------
+
+            cursor.execute(
+                """
+                UPDATE consumo_lote
+
+                SET
+                    data_fim = ?,
+                    ativo = 0
+
+                WHERE id = ?
+                """,
+                (
+                    data_inicio,
+                    atual["id"]
+                )
+            )
+
+        # --------------------------------------------------
+        # Cria nova configuração
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO consumo_lote (
+                fazenda_id,
+                lote_id,
+                dieta_id,
+                consumo_ms_animal_dia,
+                data_inicio,
+                ativo
+            )
+
+            VALUES (?, ?, ?, ?, ?, 1)
+            """,
+            (
+                fazenda_id,
+                lote_id,
+                dieta_id,
+                consumo,
+                data_inicio
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    except:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+def buscar_consumo_atual_lote(
+    lote_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.id,
+                c.fazenda_id,
+                c.lote_id,
+                c.dieta_id,
+                c.consumo_ms_animal_dia,
+                c.data_inicio,
+                c.data_fim,
+                c.ativo,
+
+                d.nome AS dieta_nome,
+                d.versao AS dieta_versao,
+
+                l.numero_animais,
+
+                (
+                    c.consumo_ms_animal_dia
+                    * l.numero_animais
+                ) AS consumo_ms_lote_dia
+
+            FROM consumo_lote AS c
+
+            INNER JOIN dietas AS d
+                ON d.id = c.dieta_id
+
+            INNER JOIN lotes AS l
+                ON l.id = c.lote_id
+
+            WHERE
+                c.lote_id = ?
+                AND c.fazenda_id = ?
+                AND c.ativo = 1
+
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def listar_historico_consumo_lote(
+    lote_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.id,
+                c.lote_id,
+                c.dieta_id,
+                c.consumo_ms_animal_dia,
+                c.data_inicio,
+                c.data_fim,
+                c.ativo,
+
+                d.nome AS dieta_nome,
+                d.versao AS dieta_versao
+
+            FROM consumo_lote AS c
+
+            INNER JOIN dietas AS d
+                ON d.id = c.dieta_id
+
+            WHERE
+                c.lote_id = ?
+                AND c.fazenda_id = ?
+
+            ORDER BY
+                c.data_inicio DESC,
+                c.id DESC
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+# ==========================================================
+# MISTURADORES
+# ==========================================================
+
+def cadastrar_misturador(
+    fazenda_id,
+    nome,
+    capacidade_m3,
+    capacidade_util_percentual=100,
+    observacoes=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        nome = (nome or "").strip()
+
+        if not nome:
+            raise ValueError(
+                "Informe o nome do misturador."
+            )
+
+        try:
+            capacidade_m3 = float(
+                capacidade_m3
+            )
+
+            capacidade_util_percentual = float(
+                capacidade_util_percentual
+            )
+
+        except (TypeError, ValueError):
+
+            raise ValueError(
+                "Informe valores válidos "
+                "para a capacidade."
+            )
+
+        if capacidade_m3 <= 0:
+
+            raise ValueError(
+                "A capacidade deve ser maior que zero."
+            )
+
+        if (
+            capacidade_util_percentual <= 0
+            or capacidade_util_percentual > 100
+        ):
+
+            raise ValueError(
+                "A capacidade útil deve estar "
+                "entre 0 e 100%."
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO misturadores (
+                fazenda_id,
+                nome,
+                capacidade_m3,
+                capacidade_util_percentual,
+                observacoes
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                fazenda_id,
+                nome,
+                capacidade_m3,
+                capacidade_util_percentual,
+                observacoes
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_misturadores_fazenda(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                m.id,
+                m.fazenda_id,
+                m.nome,
+                m.capacidade_m3,
+                m.capacidade_util_percentual,
+                m.ativo,
+                m.observacoes,
+                m.criado_em,
+
+                f.nome AS fazenda_nome,
+
+                (
+                    m.capacidade_m3
+                    * m.capacidade_util_percentual
+                    / 100.0
+                ) AS volume_util_m3
+
+            FROM misturadores AS m
+
+            INNER JOIN fazendas AS f
+                ON f.id = m.fazenda_id
+
+            WHERE
+                m.fazenda_id = ?
+                AND m.ativo = 1
+
+            ORDER BY m.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def listar_misturadores_fazenda_todos(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                m.id,
+                m.fazenda_id,
+                m.nome,
+                m.capacidade_m3,
+                m.capacidade_util_percentual,
+                m.ativo,
+                m.observacoes,
+                m.criado_em,
+
+                f.nome AS fazenda_nome,
+
+                (
+                    m.capacidade_m3
+                    * m.capacidade_util_percentual
+                    / 100.0
+                ) AS volume_util_m3
+
+            FROM misturadores AS m
+
+            INNER JOIN fazendas AS f
+                ON f.id = m.fazenda_id
+
+            WHERE
+                m.fazenda_id = ?
+
+            ORDER BY m.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def atualizar_misturador(
+    misturador_id,
+    fazenda_id,
+    nome,
+    capacidade_m3,
+    capacidade_util_percentual,
+    observacoes=None
+):
+    conn = get_connection()
+
+    try:
+        nome = (nome or "").strip()
+
+        if not nome:
+            raise ValueError(
+                "Informe o nome do misturador."
+            )
+
+        try:
+
+            capacidade_m3 = float(
+                capacidade_m3
+            )
+
+            capacidade_util_percentual = float(
+                capacidade_util_percentual
+            )
+
+        except (TypeError, ValueError):
+
+            raise ValueError(
+                "Informe valores válidos "
+                "para a capacidade."
+            )
+
+        if capacidade_m3 <= 0:
+
+            raise ValueError(
+                "A capacidade deve ser maior que zero."
+            )
+
+        if (
+            capacidade_util_percentual <= 0
+            or capacidade_util_percentual > 100
+        ):
+
+            raise ValueError(
+                "A capacidade útil deve estar "
+                "entre 0 e 100%."
+            )
+
+        conn.execute(
+            """
+            UPDATE misturadores
+
+            SET
+                nome = ?,
+                capacidade_m3 = ?,
+                capacidade_util_percentual = ?,
+                observacoes = ?
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                nome,
+                capacidade_m3,
+                capacidade_util_percentual,
+                observacoes,
+                misturador_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def desativar_misturador(
+    misturador_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+
+        conn.execute(
+            """
+            UPDATE misturadores
+
+            SET ativo = 0
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                misturador_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def reativar_misturador(
+    misturador_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+
+        conn.execute(
+            """
+            UPDATE misturadores
+
+            SET ativo = 1
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                misturador_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+# ==========================================================
+# CALIBRAÇÕES DOS MISTURADORES
+# ==========================================================
+
+def registrar_calibracao_misturador(
+    fazenda_id,
+    misturador_id,
+    dieta_id,
+    densidade_kg_m3,
+    data_vigencia,
+    observacoes=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Valida o misturador
+        # --------------------------------------------------
+
+        misturador = cursor.execute(
+            """
+            SELECT
+                id,
+                capacidade_m3,
+                capacidade_util_percentual,
+                ativo
+
+            FROM misturadores
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+
+            LIMIT 1
+            """,
+            (
+                misturador_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if misturador is None:
+            raise ValueError(
+                "O misturador não pertence "
+                "à fazenda selecionada."
+            )
+
+        if not misturador["ativo"]:
+            raise ValueError(
+                "Não é possível calibrar "
+                "um misturador inativo."
+            )
+
+        # --------------------------------------------------
+        # Valida a dieta
+        # --------------------------------------------------
+
+        dieta = cursor.execute(
+            """
+            SELECT
+                id,
+                status
+
+            FROM dietas
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+
+            LIMIT 1
+            """,
+            (
+                dieta_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if dieta is None:
+            raise ValueError(
+                "A dieta não pertence "
+                "à fazenda selecionada."
+            )
+
+        # Permitimos calibrar uma dieta arquivada?
+        # Para novo registro, não.
+        if dieta["status"] != "ATIVA":
+            raise ValueError(
+                "Somente dietas ativas podem "
+                "receber uma nova calibração."
+            )
+
+        # --------------------------------------------------
+        # Valida densidade
+        # --------------------------------------------------
+
+        try:
+
+            densidade = float(
+                densidade_kg_m3
+            )
+
+        except (TypeError, ValueError):
+
+            raise ValueError(
+                "Informe uma densidade válida."
+            )
+
+        if densidade <= 0:
+
+            raise ValueError(
+                "A densidade deve ser maior que zero."
+            )
+
+        # --------------------------------------------------
+        # Impede duplicidade na mesma data
+        # --------------------------------------------------
+
+        existente = cursor.execute(
+            """
+            SELECT id
+
+            FROM calibracoes_misturador
+
+            WHERE
+                misturador_id = ?
+                AND dieta_id = ?
+                AND data_vigencia = ?
+
+            LIMIT 1
+            """,
+            (
+                misturador_id,
+                dieta_id,
+                data_vigencia
+            )
+        ).fetchone()
+
+        if existente is not None:
+
+            raise ValueError(
+                "Já existe uma calibração "
+                "para este misturador e dieta "
+                "nesta data."
+            )
+
+        # --------------------------------------------------
+        # Registra
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO calibracoes_misturador (
+                fazenda_id,
+                misturador_id,
+                dieta_id,
+                densidade_kg_m3,
+                data_vigencia,
+                observacoes
+            )
+
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fazenda_id,
+                misturador_id,
+                dieta_id,
+                densidade,
+                data_vigencia,
+                observacoes
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_historico_calibracoes_misturador(
+    misturador_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.id,
+                c.fazenda_id,
+                c.misturador_id,
+                c.dieta_id,
+                c.densidade_kg_m3,
+                c.data_vigencia,
+                c.observacoes,
+                c.criado_em,
+
+                d.nome AS dieta_nome,
+                d.versao AS dieta_versao,
+
+                m.nome AS misturador_nome,
+                m.capacidade_m3,
+                m.capacidade_util_percentual,
+
+                (
+                    m.capacidade_m3
+                    * m.capacidade_util_percentual
+                    / 100.0
+                ) AS volume_util_m3,
+
+                (
+                    (
+                        m.capacidade_m3
+                        * m.capacidade_util_percentual
+                        / 100.0
+                    )
+                    * c.densidade_kg_m3
+                ) AS capacidade_operacional_kg
+
+            FROM calibracoes_misturador AS c
+
+            INNER JOIN dietas AS d
+                ON d.id = c.dieta_id
+
+            INNER JOIN misturadores AS m
+                ON m.id = c.misturador_id
+
+            WHERE
+                c.misturador_id = ?
+                AND c.fazenda_id = ?
+
+            ORDER BY
+                c.data_vigencia DESC,
+                c.id DESC
+            """,
+            (
+                misturador_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_calibracao_atual_misturador_dieta(
+    misturador_id,
+    dieta_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.id,
+                c.misturador_id,
+                c.dieta_id,
+                c.densidade_kg_m3,
+                c.data_vigencia,
+                c.observacoes,
+
+                m.capacidade_m3,
+                m.capacidade_util_percentual,
+
+                (
+                    m.capacidade_m3
+                    * m.capacidade_util_percentual
+                    / 100.0
+                ) AS volume_util_m3,
+
+                (
+                    (
+                        m.capacidade_m3
+                        * m.capacidade_util_percentual
+                        / 100.0
+                    )
+                    * c.densidade_kg_m3
+                ) AS capacidade_operacional_kg
+
+            FROM calibracoes_misturador AS c
+
+            INNER JOIN misturadores AS m
+                ON m.id = c.misturador_id
+
+            WHERE
+                c.misturador_id = ?
+                AND c.dieta_id = ?
+                AND c.fazenda_id = ?
+
+            ORDER BY
+                c.data_vigencia DESC,
+                c.id DESC
+
+            LIMIT 1
+            """,
+            (
+                misturador_id,
+                dieta_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def buscar_calibracao_misturador_dieta_na_data(
+    misturador_id,
+    dieta_id,
+    fazenda_id,
+    data_referencia
+):
+    """
+    Retorna a calibração vigente na data informada.
+    """
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                c.id,
+                c.misturador_id,
+                c.dieta_id,
+                c.densidade_kg_m3,
+                c.data_vigencia,
+                c.observacoes,
+
+                m.capacidade_m3,
+                m.capacidade_util_percentual,
+
+                (
+                    m.capacidade_m3
+                    * m.capacidade_util_percentual
+                    / 100.0
+                ) AS volume_util_m3,
+
+                (
+                    (
+                        m.capacidade_m3
+                        * m.capacidade_util_percentual
+                        / 100.0
+                    )
+                    * c.densidade_kg_m3
+                ) AS capacidade_operacional_kg
+
+            FROM calibracoes_misturador AS c
+
+            INNER JOIN misturadores AS m
+                ON m.id = c.misturador_id
+
+            WHERE
+                c.misturador_id = ?
+                AND c.dieta_id = ?
+                AND c.fazenda_id = ?
+                AND c.data_vigencia <= ?
+
+            ORDER BY
+                c.data_vigencia DESC,
+                c.id DESC
+
+            LIMIT 1
+            """,
+            (
+                misturador_id,
+                dieta_id,
+                fazenda_id,
+                data_referencia
+            )
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
