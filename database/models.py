@@ -2305,12 +2305,93 @@ def atualizar_lote(
 def encerrar_lote(
     lote_id,
     fazenda_id,
-    data_saida=None
+    data_saida
 ):
     conn = get_connection()
 
     try:
-        conn.execute(
+        cursor = conn.cursor()
+
+        lote = cursor.execute(
+            """
+            SELECT
+                id,
+                status,
+                data_entrada
+            FROM lotes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "Lote não encontrado."
+            )
+
+        if lote["status"] != "ATIVO":
+            raise ValueError(
+                "Este lote já está encerrado."
+            )
+
+        if (
+            lote["data_entrada"]
+            and data_saida < lote["data_entrada"]
+        ):
+            raise ValueError(
+                "A data de saída não pode ser "
+                "anterior à data de entrada."
+            )
+
+        vinculo_atual = cursor.execute(
+            """
+            SELECT
+                id,
+                data_inicio
+            FROM lotes_piquetes_historico
+            WHERE
+                lote_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (lote_id,)
+        ).fetchone()
+
+        if vinculo_atual is not None:
+
+            if (
+                vinculo_atual["data_inicio"]
+                and data_saida
+                < vinculo_atual["data_inicio"]
+            ):
+                raise ValueError(
+                    "A data de saída não pode ser "
+                    "anterior à entrada no piquete atual."
+                )
+
+            cursor.execute(
+                """
+                UPDATE lotes_piquetes_historico
+
+                SET
+                    data_fim = ?,
+                    ativo = 0
+
+                WHERE id = ?
+                """,
+                (
+                    data_saida,
+                    vinculo_atual["id"]
+                )
+            )
+
+        cursor.execute(
             """
             UPDATE lotes
 
@@ -2321,7 +2402,6 @@ def encerrar_lote(
             WHERE
                 id = ?
                 AND fazenda_id = ?
-                AND status = 'ATIVO'
             """,
             (
                 data_saida,
@@ -2332,23 +2412,153 @@ def encerrar_lote(
 
         conn.commit()
 
+    except:
+        conn.rollback()
+        raise
+
     finally:
         conn.close()
 
 
 def reativar_lote(
     lote_id,
-    fazenda_id
+    fazenda_id,
+    piquete_id,
+    data_retorno
 ):
     conn = get_connection()
 
     try:
-        conn.execute(
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Confere o lote
+        # --------------------------------------------------
+
+        lote = cursor.execute(
+            """
+            SELECT
+                id,
+                status,
+                data_saida
+            FROM lotes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "Lote não encontrado."
+            )
+
+        if lote["status"] == "ATIVO":
+            raise ValueError(
+                "Este lote já está ativo."
+            )
+
+        # --------------------------------------------------
+        # Confere o piquete escolhido
+        # --------------------------------------------------
+
+        piquete = cursor.execute(
+            """
+            SELECT id
+            FROM piquetes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (
+                piquete_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if piquete is None:
+            raise ValueError(
+                "O piquete selecionado não pertence "
+                "à fazenda ou está inativo."
+            )
+
+        # --------------------------------------------------
+        # A reativação não pode ocorrer antes
+        # do encerramento anterior
+        # --------------------------------------------------
+
+        if (
+            lote["data_saida"]
+            and data_retorno < lote["data_saida"]
+        ):
+            raise ValueError(
+                "A data de retorno não pode ser "
+                "anterior à data de saída do lote."
+            )
+
+        # --------------------------------------------------
+        # Segurança: não pode existir vínculo ativo
+        # --------------------------------------------------
+
+        vinculo_ativo = cursor.execute(
+            """
+            SELECT id
+            FROM lotes_piquetes_historico
+            WHERE
+                lote_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (lote_id,)
+        ).fetchone()
+
+        if vinculo_ativo is not None:
+            raise ValueError(
+                "O lote já possui um piquete ativo "
+                "no histórico."
+            )
+
+        # --------------------------------------------------
+        # Novo período histórico
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO lotes_piquetes_historico (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_inicio,
+                ativo
+            )
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_retorno
+            )
+        )
+
+        # --------------------------------------------------
+        # Reativa o lote e define a nova localização
+        # --------------------------------------------------
+
+        cursor.execute(
             """
             UPDATE lotes
 
             SET
                 status = 'ATIVO',
+                piquete_id = ?,
                 data_saida = NULL
 
             WHERE
@@ -2356,12 +2566,17 @@ def reativar_lote(
                 AND fazenda_id = ?
             """,
             (
+                piquete_id,
                 lote_id,
                 fazenda_id
             )
         )
 
         conn.commit()
+
+    except:
+        conn.rollback()
+        raise
 
     finally:
         conn.close()
@@ -2739,6 +2954,543 @@ def movimentar_lote_piquete(
     except:
         conn.rollback()
         raise
+
+    finally:
+        conn.close()
+        # ==========================================================
+# ALIMENTOS
+# ==========================================================
+
+def cadastrar_alimento(
+    fazenda_id,
+    nome,
+    categoria,
+    unidade="kg"
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO alimentos (
+                fazenda_id,
+                nome,
+                categoria,
+                unidade
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                fazenda_id,
+                nome,
+                categoria,
+                unidade
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_alimentos_fazenda(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                a.id,
+                a.fazenda_id,
+                a.nome,
+                a.categoria,
+                a.unidade,
+                a.ativo,
+                a.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM alimentos AS a
+
+            INNER JOIN fazendas AS f
+                ON f.id = a.fazenda_id
+
+            WHERE
+                a.fazenda_id = ?
+                AND a.ativo = 1
+
+            ORDER BY
+                a.categoria,
+                a.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def listar_alimentos_fazenda_todos(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                a.id,
+                a.fazenda_id,
+                a.nome,
+                a.categoria,
+                a.unidade,
+                a.ativo,
+                a.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM alimentos AS a
+
+            INNER JOIN fazendas AS f
+                ON f.id = a.fazenda_id
+
+            WHERE
+                a.fazenda_id = ?
+
+            ORDER BY
+                a.categoria,
+                a.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_alimento_por_id(
+    alimento_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                a.id,
+                a.fazenda_id,
+                a.nome,
+                a.categoria,
+                a.unidade,
+                a.ativo,
+                a.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM alimentos AS a
+
+            INNER JOIN fazendas AS f
+                ON f.id = a.fazenda_id
+
+            WHERE a.id = ?
+
+            LIMIT 1
+            """,
+            (alimento_id,)
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def atualizar_alimento(
+    alimento_id,
+    fazenda_id,
+    nome,
+    categoria,
+    unidade
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE alimentos
+
+            SET
+                nome = ?,
+                categoria = ?,
+                unidade = ?
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                nome,
+                categoria,
+                unidade,
+                alimento_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def desativar_alimento(
+    alimento_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+
+        conn.execute(
+            """
+            UPDATE alimentos
+
+            SET ativo = 0
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                alimento_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def reativar_alimento(
+    alimento_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+
+        conn.execute(
+            """
+            UPDATE alimentos
+
+            SET ativo = 1
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                alimento_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+# ==========================================================
+# HISTÓRICO DE MATÉRIA SECA DOS ALIMENTOS
+# ==========================================================
+
+def registrar_ms_alimento(
+    alimento_id,
+    fazenda_id,
+    materia_seca,
+    data_vigencia,
+    observacao=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Confere se o alimento pertence à fazenda
+        # --------------------------------------------------
+
+        alimento = cursor.execute(
+            """
+            SELECT
+                id,
+                ativo
+            FROM alimentos
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                alimento_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if alimento is None:
+            raise ValueError(
+                "O alimento não pertence "
+                "à fazenda selecionada."
+            )
+
+        if not alimento["ativo"]:
+            raise ValueError(
+                "Não é possível registrar matéria seca "
+                "para um alimento inativo."
+            )
+
+        # --------------------------------------------------
+        # Validação da MS
+        # --------------------------------------------------
+
+        try:
+            materia_seca = float(
+                materia_seca
+            )
+
+        except (TypeError, ValueError):
+            raise ValueError(
+                "Informe uma matéria seca válida."
+            )
+
+        if (
+            materia_seca <= 0
+            or materia_seca > 100
+        ):
+            raise ValueError(
+                "A matéria seca deve ser maior que 0 "
+                "e menor ou igual a 100%."
+            )
+
+        # --------------------------------------------------
+        # Impede dois valores para o mesmo alimento/data
+        # --------------------------------------------------
+
+        existente = cursor.execute(
+            """
+            SELECT id
+            FROM alimento_ms_historico
+            WHERE
+                alimento_id = ?
+                AND data_vigencia = ?
+            LIMIT 1
+            """,
+            (
+                alimento_id,
+                data_vigencia
+            )
+        ).fetchone()
+
+        if existente is not None:
+            raise ValueError(
+                "Já existe um registro de matéria seca "
+                "para este alimento nesta data."
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO alimento_ms_historico (
+                alimento_id,
+                fazenda_id,
+                materia_seca,
+                data_vigencia,
+                observacao
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                alimento_id,
+                fazenda_id,
+                materia_seca,
+                data_vigencia,
+                observacao
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_historico_ms_alimento(
+    alimento_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                h.id,
+                h.alimento_id,
+                h.fazenda_id,
+                h.materia_seca,
+                h.data_vigencia,
+                h.observacao,
+                h.criado_em,
+
+                a.nome AS alimento_nome
+
+            FROM alimento_ms_historico AS h
+
+            INNER JOIN alimentos AS a
+                ON a.id = h.alimento_id
+
+            WHERE
+                h.alimento_id = ?
+                AND h.fazenda_id = ?
+                AND a.fazenda_id = ?
+
+            ORDER BY
+                h.data_vigencia DESC,
+                h.id DESC
+            """,
+            (
+                alimento_id,
+                fazenda_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_ms_atual_alimento(
+    alimento_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                h.id,
+                h.alimento_id,
+                h.fazenda_id,
+                h.materia_seca,
+                h.data_vigencia,
+                h.observacao,
+                h.criado_em
+
+            FROM alimento_ms_historico AS h
+
+            WHERE
+                h.alimento_id = ?
+                AND h.fazenda_id = ?
+
+            ORDER BY
+                h.data_vigencia DESC,
+                h.id DESC
+
+            LIMIT 1
+            """,
+            (
+                alimento_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def buscar_ms_alimento_na_data(
+    alimento_id,
+    fazenda_id,
+    data_referencia
+):
+    """
+    Retorna a MS vigente para o alimento
+    na data informada.
+
+    Exemplo:
+        01/09 -> 88%
+        15/09 -> 86%
+
+        consulta em 20/09 -> 86%
+    """
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                h.id,
+                h.alimento_id,
+                h.fazenda_id,
+                h.materia_seca,
+                h.data_vigencia,
+                h.observacao,
+                h.criado_em
+
+            FROM alimento_ms_historico AS h
+
+            WHERE
+                h.alimento_id = ?
+                AND h.fazenda_id = ?
+                AND h.data_vigencia <= ?
+
+            ORDER BY
+                h.data_vigencia DESC,
+                h.id DESC
+
+            LIMIT 1
+            """,
+            (
+                alimento_id,
+                fazenda_id,
+                data_referencia
+            )
+        )
+
+        return cursor.fetchone()
 
     finally:
         conn.close()

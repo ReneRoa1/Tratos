@@ -9,13 +9,14 @@ from database.models import (
     encerrar_lote,
     reativar_lote,
     listar_piquetes_fazenda,
-    consultor_tem_acesso_fazenda,
-    usuario_tem_acesso_fazenda,
     movimentar_lote_piquete,
     listar_historico_piquetes_lote,
+    consultor_tem_acesso_fazenda,
+    usuario_tem_acesso_fazenda,
 )
 
 from services.sessao import sessao
+
 from services.identificadores import (
     codigo_lote,
     codigo_piquete,
@@ -25,7 +26,178 @@ from services.identificadores import (
 def tela_lotes(page: ft.Page):
 
     # ======================================================
-    # CAMPOS
+    # CONTEXTO
+    # ======================================================
+
+    def fazenda_atual_id():
+        return sessao.fazenda_atual_id
+
+    def fazenda_atual_nome():
+        return (
+            sessao.fazenda_atual_nome
+            or "Nenhuma fazenda selecionada"
+        )
+
+    # ======================================================
+    # PERMISSÕES
+    # ======================================================
+
+    def pode_acessar_fazenda():
+
+        fazenda_id = fazenda_atual_id()
+
+        if fazenda_id is None:
+            return False
+
+        # ADMIN possui visão administrativa,
+        # mas não executa a rotina operacional.
+        if sessao.perfil_sistema == "ADMIN":
+            return False
+
+        if sessao.perfil_sistema == "CONSULTOR":
+
+            return consultor_tem_acesso_fazenda(
+                consultor_id=sessao.usuario_id,
+                fazenda_id=fazenda_id
+            )
+
+        if sessao.perfil_sistema == "USUARIO":
+
+            return usuario_tem_acesso_fazenda(
+                usuario_id=sessao.usuario_id,
+                fazenda_id=fazenda_id
+            )
+
+        return False
+
+    # ======================================================
+    # CONVERSÕES
+    # ======================================================
+
+    def converter_inteiro(valor):
+
+        try:
+            return int(valor)
+
+        except (TypeError, ValueError):
+            return None
+
+    def converter_decimal(valor):
+
+        if valor is None:
+            return None
+
+        valor = str(valor).strip()
+
+        if not valor:
+            return None
+
+        try:
+
+            valor = valor.replace(",", ".")
+
+            return float(valor)
+
+        except ValueError:
+            return None
+
+    # ======================================================
+    # DATAS
+    # Interface: DD/MM/AAAA
+    # Banco:     AAAA-MM-DD
+    # ======================================================
+
+    def aplicar_mascara_data(e):
+
+        valor = e.control.value or ""
+
+        numeros = "".join(
+            caractere
+            for caractere in valor
+            if caractere.isdigit()
+        )
+
+        numeros = numeros[:8]
+
+        if len(numeros) <= 2:
+
+            formatado = numeros
+
+        elif len(numeros) <= 4:
+
+            formatado = (
+                numeros[:2]
+                + "/"
+                + numeros[2:]
+            )
+
+        else:
+
+            formatado = (
+                numeros[:2]
+                + "/"
+                + numeros[2:4]
+                + "/"
+                + numeros[4:]
+            )
+
+        e.control.value = formatado
+
+        page.update()
+
+    def data_interface_para_banco(valor):
+
+        if valor is None:
+            return None
+
+        valor = str(valor).strip()
+
+        if not valor:
+            return None
+
+        try:
+
+            data = datetime.strptime(
+                valor,
+                "%d/%m/%Y"
+            )
+
+            return data.strftime(
+                "%Y-%m-%d"
+            )
+
+        except ValueError:
+            return None
+
+    def data_banco_para_interface(valor):
+
+        if valor is None:
+            return ""
+
+        valor = str(valor).strip()
+
+        if not valor:
+            return ""
+
+        try:
+
+            data = datetime.strptime(
+                valor,
+                "%Y-%m-%d"
+            )
+
+            return data.strftime(
+                "%d/%m/%Y"
+            )
+
+        except ValueError:
+
+            # Evita quebrar a interface caso
+            # exista algum dado antigo inesperado.
+            return valor
+
+    # ======================================================
+    # CAMPOS DO CADASTRO
     # ======================================================
 
     campo_nome = ft.TextField(
@@ -35,7 +207,7 @@ def tela_lotes(page: ft.Page):
     )
 
     campo_piquete = ft.Dropdown(
-        label="Piquete",
+        label="Piquete inicial",
         width=500
     )
 
@@ -74,153 +246,7 @@ def tela_lotes(page: ft.Page):
     )
 
     # ======================================================
-    # CONTEXTO DA FAZENDA
-    # ======================================================
-
-    def fazenda_atual_id():
-        return sessao.fazenda_atual_id
-
-    def fazenda_atual_nome():
-        return (
-            sessao.fazenda_atual_nome
-            or "Nenhuma fazenda selecionada"
-        )
-
-    # ======================================================
-    # PERMISSÃO
-    # ======================================================
-
-    def pode_acessar_fazenda():
-
-        fazenda_id = fazenda_atual_id()
-
-        if fazenda_id is None:
-            return False
-
-        # ADMIN possui visão administrativa,
-        # mas não executa rotina operacional.
-        if sessao.perfil_sistema == "ADMIN":
-            return False
-
-        if sessao.perfil_sistema == "CONSULTOR":
-
-            return consultor_tem_acesso_fazenda(
-                consultor_id=sessao.usuario_id,
-                fazenda_id=fazenda_id
-            )
-
-        if sessao.perfil_sistema == "USUARIO":
-
-            return usuario_tem_acesso_fazenda(
-                usuario_id=sessao.usuario_id,
-                fazenda_id=fazenda_id
-            )
-
-        return False
-
-    # ======================================================
-    # CONVERSÕES / VALIDAÇÕES
-    # ======================================================
-
-    def converter_inteiro(valor):
-
-        try:
-            numero = int(valor)
-            return numero
-        except:
-            return None
-
-    def converter_decimal(valor):
-
-        if not valor:
-            return None
-
-        try:
-
-            valor = valor.replace(",", ".")
-
-            return float(valor)
-
-        except:
-            return None
-
-    def aplicar_mascara_data(e):
-
-        somente_numeros = "".join(
-            caractere
-            for caractere in (e.control.value or "")
-            if caractere.isdigit()
-        )
-
-        somente_numeros = somente_numeros[:8]
-
-        if len(somente_numeros) <= 2:
-
-            formatado = somente_numeros
-
-        elif len(somente_numeros) <= 4:
-
-            formatado = (
-                somente_numeros[:2]
-                + "/"
-                + somente_numeros[2:]
-            )
-
-        else:
-
-            formatado = (
-                somente_numeros[:2]
-                + "/"
-                + somente_numeros[2:4]
-                + "/"
-                + somente_numeros[4:]
-            )
-
-        e.control.value = formatado
-        page.update()
-
-
-    def data_interface_para_banco(valor):
-
-        if not valor:
-            return None
-
-        try:
-
-            data = datetime.strptime(
-                valor,
-                "%d/%m/%Y"
-            )
-
-            return data.strftime(
-                "%Y-%m-%d"
-            )
-
-        except ValueError:
-            return None
-
-
-    def data_banco_para_interface(valor):
-
-        if not valor:
-            return ""
-
-        try:
-
-            data = datetime.strptime(
-                valor,
-                "%Y-%m-%d"
-            )
-
-            return data.strftime(
-                "%d/%m/%Y"
-            )
-
-        except ValueError:
-            return valor
-
-    # ======================================================
-    # CARREGAR PIQUETES
+    # PIQUETES DISPONÍVEIS
     # ======================================================
 
     def carregar_piquetes_dropdown():
@@ -240,18 +266,16 @@ def tela_lotes(page: ft.Page):
 
             campo_piquete.options.append(
                 ft.DropdownOption(
-                    key=str(
-                        piquete["id"]
-                    ),
+                    key=str(piquete["id"]),
                     text=(
-                        f"{codigo_piquete(piquete['id'])} "
-                        f"— {piquete['nome']}"
+                        f"{codigo_piquete(piquete['id'])}"
+                        f" — {piquete['nome']}"
                     )
                 )
             )
 
     # ======================================================
-    # LIMPAR FORMULÁRIO
+    # LIMPAR CADASTRO
     # ======================================================
 
     def limpar_campos():
@@ -273,8 +297,10 @@ def tela_lotes(page: ft.Page):
         if fazenda_id is None:
 
             mensagem.value = (
-                "Selecione uma fazenda."
+                "Selecione uma fazenda antes "
+                "de cadastrar o lote."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
@@ -283,16 +309,18 @@ def tela_lotes(page: ft.Page):
         if not pode_acessar_fazenda():
 
             mensagem.value = (
-                "Você não possui permissão "
-                "para cadastrar lotes nesta fazenda."
+                "Você não possui acesso operacional "
+                "a esta fazenda."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
             return
 
         nome = (
-            campo_nome.value or ""
+            campo_nome.value
+            or ""
         ).strip()
 
         if not nome:
@@ -300,6 +328,7 @@ def tela_lotes(page: ft.Page):
             mensagem.value = (
                 "Informe o nome do lote."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
@@ -308,16 +337,13 @@ def tela_lotes(page: ft.Page):
         if campo_piquete.value is None:
 
             mensagem.value = (
-                "Selecione o piquete."
+                "Selecione o piquete inicial."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
             return
-
-        piquete_id = int(
-            campo_piquete.value
-        )
 
         numero_animais = converter_inteiro(
             campo_numero_animais.value
@@ -331,6 +357,7 @@ def tela_lotes(page: ft.Page):
             mensagem.value = (
                 "Informe um número de animais válido."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
@@ -351,35 +378,25 @@ def tela_lotes(page: ft.Page):
             mensagem.value = (
                 "Informe um peso médio válido."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
             return
 
-        data_entrada_texto = (
-            campo_data_entrada.value or ""
-        ).strip()
-
-        if not data_entrada_texto:
-
-            mensagem.value = (
-                "Informe a data de entrada do lote."
+        data_entrada = (
+            data_interface_para_banco(
+                campo_data_entrada.value
             )
-            mensagem.color = ft.Colors.RED
-
-            page.update()
-            return
-
-        data_entrada = data_interface_para_banco(
-            data_entrada_texto
         )
 
         if data_entrada is None:
 
             mensagem.value = (
-                "Informe uma data válida "
+                "Informe uma data de entrada válida "
                 "no formato DD/MM/AAAA."
             )
+
             mensagem.color = ft.Colors.RED
 
             page.update()
@@ -389,15 +406,13 @@ def tela_lotes(page: ft.Page):
 
             lote_id = cadastrar_lote(
                 fazenda_id=fazenda_id,
-                piquete_id=piquete_id,
+                piquete_id=int(
+                    campo_piquete.value
+                ),
                 nome=nome,
                 numero_animais=numero_animais,
                 peso_medio_entrada=peso_medio,
-                data_entrada=(
-                    data_entrada
-                    if data_entrada
-                    else None
-                )
+                data_entrada=data_entrada
             )
 
         except ValueError as erro:
@@ -420,7 +435,11 @@ def tela_lotes(page: ft.Page):
         carregar_lotes()
 
     # ======================================================
-    # EDITAR LOTE
+    # EDITAR DADOS DO LOTE
+    #
+    # IMPORTANTE:
+    # O piquete NÃO é alterado aqui.
+    # Para isso existe a função Movimentar.
     # ======================================================
 
     def abrir_edicao(lote):
@@ -428,22 +447,14 @@ def tela_lotes(page: ft.Page):
         if not pode_acessar_fazenda():
             return
 
-        if (
-            lote["fazenda_id"]
-            != fazenda_atual_id()
-        ):
+        if lote["fazenda_id"] != fazenda_atual_id():
             return
-
-        piquetes = listar_piquetes_fazenda(
-            fazenda_atual_id()
-        )
 
         editar_nome = ft.TextField(
             label="Nome do lote",
             value=lote["nome"],
             width=450
         )
-
 
         editar_numero_animais = ft.TextField(
             label="Número de animais",
@@ -457,7 +468,9 @@ def tela_lotes(page: ft.Page):
         editar_peso = ft.TextField(
             label="Peso médio de entrada (kg)",
             value=(
-                str(lote["peso_medio_entrada"])
+                str(
+                    lote["peso_medio_entrada"]
+                )
                 if lote["peso_medio_entrada"]
                 is not None
                 else ""
@@ -466,18 +479,17 @@ def tela_lotes(page: ft.Page):
             keyboard_type=ft.KeyboardType.NUMBER
         )
 
-        editar_data = ft.TextField(
+        # Mantemos a data original protegida.
+        # Alterá-la exigiria atualizar também
+        # o primeiro registro histórico.
+        editar_data_entrada = ft.TextField(
             label="Data de entrada",
             value=data_banco_para_interface(
                 lote["data_entrada"]
             ),
-            hint_text="DD/MM/AAAA",
             width=450,
-            max_length=10,
-            keyboard_type=ft.KeyboardType.NUMBER
+            read_only=True
         )
-
-        editar_data.on_change = aplicar_mascara_data
 
         mensagem_edicao = ft.Text()
 
@@ -488,6 +500,7 @@ def tela_lotes(page: ft.Page):
                 mensagem_edicao.value = (
                     "Acesso não autorizado."
                 )
+
                 mensagem_edicao.color = (
                     ft.Colors.RED
                 )
@@ -496,7 +509,8 @@ def tela_lotes(page: ft.Page):
                 return
 
             nome = (
-                editar_nome.value or ""
+                editar_nome.value
+                or ""
             ).strip()
 
             if not nome:
@@ -504,18 +518,7 @@ def tela_lotes(page: ft.Page):
                 mensagem_edicao.value = (
                     "Informe o nome do lote."
                 )
-                mensagem_edicao.color = (
-                    ft.Colors.RED
-                )
 
-                page.update()
-                return
-
-            if editar_piquete.value is None:
-
-                mensagem_edicao.value = (
-                    "Selecione um piquete."
-                )
                 mensagem_edicao.color = (
                     ft.Colors.RED
                 )
@@ -533,8 +536,9 @@ def tela_lotes(page: ft.Page):
             ):
 
                 mensagem_edicao.value = (
-                    "Número de animais inválido."
+                    "Informe um número de animais válido."
                 )
+
                 mensagem_edicao.color = (
                     ft.Colors.RED
                 )
@@ -555,8 +559,9 @@ def tela_lotes(page: ft.Page):
             ):
 
                 mensagem_edicao.value = (
-                    "Peso médio inválido."
+                    "Informe um peso médio válido."
                 )
+
                 mensagem_edicao.color = (
                     ft.Colors.RED
                 )
@@ -564,51 +569,14 @@ def tela_lotes(page: ft.Page):
                 page.update()
                 return
 
-            data = (
-                editar_data.value or ""
-            ).strip()
-
-            if not data_valida(data):
-
-                mensagem_edicao.value = (
-                    "Data inválida. "
-                    "Utilize AAAA-MM-DD."
-                )
-                mensagem_edicao.color = (
-                    ft.Colors.RED
-                )
-
-                page.update()
-                return
-
-            try:
-
-                atualizar_lote(
-                    lote_id=lote["id"],
-                    fazenda_id=(
-                        fazenda_atual_id()
-                    ),
-                    nome=nome,
-                    numero_animais=numero_animais,
-                    peso_medio_entrada=peso,
-                    data_entrada=(
-                        data
-                        if data
-                        else None
-                    )
-                )
-
-            except ValueError as erro:
-
-                mensagem_edicao.value = str(
-                    erro
-                )
-                mensagem_edicao.color = (
-                    ft.Colors.RED
-                )
-
-                page.update()
-                return
+            atualizar_lote(
+                lote_id=lote["id"],
+                fazenda_id=fazenda_atual_id(),
+                nome=nome,
+                numero_animais=numero_animais,
+                peso_medio_entrada=peso,
+                data_entrada=lote["data_entrada"]
+            )
 
             page.pop_dialog()
 
@@ -625,16 +593,15 @@ def tela_lotes(page: ft.Page):
             modal=True,
 
             title=ft.Text(
-                f"Editar "
-                f"{codigo_lote(lote['id'])}"
+                f"Editar {codigo_lote(lote['id'])}"
             ),
 
             content=ft.Column(
                 controls=[
-                    editar_nome,                   
+                    editar_nome,
                     editar_numero_animais,
                     editar_peso,
-                    editar_data,
+                    editar_data_entrada,
                     mensagem_edicao
                 ],
                 tight=True,
@@ -662,13 +629,17 @@ def tela_lotes(page: ft.Page):
         )
 
         page.show_dialog(dialogo)
-        # ======================================================
-    # MOVIMENTAR LOTE ENTRE PIQUETES
+
+    # ======================================================
+    # MOVIMENTAR LOTE
     # ======================================================
 
     def abrir_movimentacao(lote):
 
         if not pode_acessar_fazenda():
+            return
+
+        if lote["fazenda_id"] != fazenda_atual_id():
             return
 
         piquetes = listar_piquetes_fazenda(
@@ -682,39 +653,39 @@ def tela_lotes(page: ft.Page):
 
         for piquete in piquetes:
 
-            if piquete["id"] != lote["piquete_id"]:
+            # Não mostra o próprio piquete atual
+            if piquete["id"] == lote["piquete_id"]:
+                continue
 
-                novo_piquete.options.append(
-                    ft.DropdownOption(
-                        key=str(piquete["id"]),
-                        text=(
-                            f"{codigo_piquete(piquete['id'])} "
-                            f"— {piquete['nome']}"
-                        )
+            novo_piquete.options.append(
+                ft.DropdownOption(
+                    key=str(piquete["id"]),
+                    text=(
+                        f"{codigo_piquete(piquete['id'])}"
+                        f" — {piquete['nome']}"
                     )
                 )
+            )
 
         campo_data_movimentacao = ft.TextField(
             label="Data da movimentação",
             hint_text="DD/MM/AAAA",
             width=450,
             max_length=10,
-            keyboard_type=ft.KeyboardType.NUMBER
-        )
-
-        campo_data_movimentacao.on_change = (
-            aplicar_mascara_data
+            keyboard_type=ft.KeyboardType.NUMBER,
+            on_change=aplicar_mascara_data
         )
 
         mensagem_movimentacao = ft.Text()
 
-        def confirmar(e):
+        def confirmar_movimentacao(e):
 
             if novo_piquete.value is None:
 
                 mensagem_movimentacao.value = (
                     "Selecione o novo piquete."
                 )
+
                 mensagem_movimentacao.color = (
                     ft.Colors.RED
                 )
@@ -722,22 +693,19 @@ def tela_lotes(page: ft.Page):
                 page.update()
                 return
 
-            data_texto = (
-                campo_data_movimentacao.value or ""
-            ).strip()
-
-            data_banco = (
+            data_movimentacao = (
                 data_interface_para_banco(
-                    data_texto
+                    campo_data_movimentacao.value
                 )
             )
 
-            if data_banco is None:
+            if data_movimentacao is None:
 
                 mensagem_movimentacao.value = (
                     "Informe uma data válida "
                     "no formato DD/MM/AAAA."
                 )
+
                 mensagem_movimentacao.color = (
                     ft.Colors.RED
                 )
@@ -753,7 +721,9 @@ def tela_lotes(page: ft.Page):
                     novo_piquete_id=int(
                         novo_piquete.value
                     ),
-                    data_movimentacao=data_banco
+                    data_movimentacao=(
+                        data_movimentacao
+                    )
                 )
 
             except ValueError as erro:
@@ -761,6 +731,7 @@ def tela_lotes(page: ft.Page):
                 mensagem_movimentacao.value = (
                     str(erro)
                 )
+
                 mensagem_movimentacao.color = (
                     ft.Colors.RED
                 )
@@ -774,22 +745,49 @@ def tela_lotes(page: ft.Page):
                 f"{codigo_lote(lote['id'])} "
                 "movimentado com sucesso."
             )
+
             mensagem.color = ft.Colors.GREEN
 
             carregar_lotes()
 
-        dialogo = ft.AlertDialog(
-            modal=True,
+        if not novo_piquete.options:
 
-            title=ft.Text(
-                "Movimentar lote"
-            ),
-
-            content=ft.Column(
+            conteudo = ft.Column(
                 controls=[
                     ft.Text(
-                        f"{codigo_lote(lote['id'])} "
-                        f"— {lote['nome']}"
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
+                    ),
+
+                    ft.Text(
+                        f"Piquete atual: "
+                        f"{lote['piquete_nome']}"
+                    ),
+
+                    ft.Text(
+                        "Não existem outros piquetes "
+                        "ativos disponíveis nesta fazenda."
+                    )
+                ],
+                tight=True,
+                spacing=12
+            )
+
+            acoes = [
+                ft.TextButton(
+                    "Fechar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                )
+            ]
+
+        else:
+
+            conteudo = ft.Column(
+                controls=[
+                    ft.Text(
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
                     ),
 
                     ft.Text(
@@ -805,9 +803,9 @@ def tela_lotes(page: ft.Page):
                 ],
                 tight=True,
                 spacing=12
-            ),
+            )
 
-            actions=[
+            acoes = [
                 ft.TextButton(
                     "Cancelar",
                     on_click=lambda e:
@@ -817,17 +815,36 @@ def tela_lotes(page: ft.Page):
                 ft.Button(
                     content="Confirmar movimentação",
                     icon=ft.Icons.SWAP_HORIZ,
-                    on_click=confirmar
+                    on_click=confirmar_movimentacao
                 )
             ]
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+
+            title=ft.Text(
+                "Movimentar lote"
+            ),
+
+            content=conteudo,
+
+            actions=acoes,
+
+            actions_alignment=(
+                ft.MainAxisAlignment.END
+            )
         )
 
         page.show_dialog(dialogo)
-        # ======================================================
-    # HISTÓRICO DE PIQUETES DO LOTE
+
+    # ======================================================
+    # HISTÓRICO DE PIQUETES
     # ======================================================
 
     def abrir_historico_piquetes(lote):
+
+        if lote["fazenda_id"] != fazenda_atual_id():
+            return
 
         historico = (
             listar_historico_piquetes_lote(
@@ -841,24 +858,43 @@ def tela_lotes(page: ft.Page):
 
             itens.append(
                 ft.Text(
-                    "Nenhum histórico encontrado."
+                    "Nenhum histórico de localização "
+                    "foi encontrado para este lote."
                 )
             )
 
         else:
 
-            for registro in historico:
+            # A consulta vem do mais recente
+            # para o mais antigo.
+            # Para leitura, mostramos cronologicamente.
+            for registro in reversed(
+                historico
+            ):
 
-                inicio = data_banco_para_interface(
-                    registro["data_inicio"]
+                inicio = (
+                    data_banco_para_interface(
+                        registro["data_inicio"]
+                    )
                 )
 
-                fim = (
-                    data_banco_para_interface(
-                        registro["data_fim"]
+                if registro["data_fim"]:
+
+                    fim = (
+                        data_banco_para_interface(
+                            registro["data_fim"]
+                        )
                     )
-                    if registro["data_fim"]
-                    else "Atual"
+
+                else:
+
+                    fim = "Atual"
+
+                identificacao = (
+                    registro[
+                        "piquete_identificacao"
+                    ]
+                    or "Sem identificação adicional"
                 )
 
                 itens.append(
@@ -866,10 +902,18 @@ def tela_lotes(page: ft.Page):
                         content=ft.Column(
                             controls=[
                                 ft.Text(
-                                    registro["piquete_nome"],
+                                    (
+                                        f"{codigo_piquete(registro['piquete_id'])}"
+                                        f" — {registro['piquete_nome']}"
+                                    ),
                                     weight=(
                                         ft.FontWeight.BOLD
                                     )
+                                ),
+
+                                ft.Text(
+                                    f"Identificação: "
+                                    f"{identificacao}"
                                 ),
 
                                 ft.Text(
@@ -894,7 +938,7 @@ def tela_lotes(page: ft.Page):
             modal=True,
 
             title=ft.Text(
-                f"Histórico — "
+                f"Histórico de localização — "
                 f"{codigo_lote(lote['id'])}"
             ),
 
@@ -903,7 +947,7 @@ def tela_lotes(page: ft.Page):
                 spacing=10,
                 scroll=ft.ScrollMode.AUTO,
                 height=400,
-                width=500
+                width=520
             ),
 
             actions=[
@@ -916,40 +960,45 @@ def tela_lotes(page: ft.Page):
         )
 
         page.show_dialog(dialogo)
+
     # ======================================================
     # ENCERRAR LOTE
     # ======================================================
 
     def abrir_encerramento(lote):
 
+        if lote["fazenda_id"] != fazenda_atual_id():
+            return
+
         campo_data_saida = ft.TextField(
             label="Data de saída",
-            hint_text="AAAA-MM-DD",
-            width=400
+            hint_text="DD/MM/AAAA",
+            width=420,
+            max_length=10,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            on_change=aplicar_mascara_data
         )
 
         mensagem_saida = ft.Text()
 
-        def confirmar(e):
+        def confirmar_encerramento(e):
 
             if not pode_acessar_fazenda():
                 return
 
-            if (
-                lote["fazenda_id"]
-                != fazenda_atual_id()
-            ):
-                return
-
             data_saida = (
-                campo_data_saida.value or ""
-            ).strip()
+                data_interface_para_banco(
+                    campo_data_saida.value
+                )
+            )
 
-            if not data_saida:
+            if data_saida is None:
 
                 mensagem_saida.value = (
-                    "Informe a data de saída."
+                    "Informe uma data de saída válida "
+                    "no formato DD/MM/AAAA."
                 )
+
                 mensagem_saida.color = (
                     ft.Colors.RED
                 )
@@ -957,36 +1006,13 @@ def tela_lotes(page: ft.Page):
                 page.update()
                 return
 
-            if not data_valida(data_saida):
-
-                mensagem_saida.value = (
-                    "Utilize o formato AAAA-MM-DD."
-                )
-                mensagem_saida.color = (
-                    ft.Colors.RED
-                )
-
-                page.update()
-                return
-
-            # Impede saída anterior à entrada
             if lote["data_entrada"]:
 
-                data_inicio = datetime.strptime(
-                    lote["data_entrada"],
-                    "%Y-%m-%d"
-                )
-
-                data_fim = datetime.strptime(
-                    data_saida,
-                    "%Y-%m-%d"
-                )
-
-                if data_fim < data_inicio:
+                if data_saida < lote["data_entrada"]:
 
                     mensagem_saida.value = (
-                        "A data de saída não pode "
-                        "ser anterior à data de entrada."
+                        "A data de saída não pode ser "
+                        "anterior à data de entrada."
                     )
 
                     mensagem_saida.color = (
@@ -1023,8 +1049,8 @@ def tela_lotes(page: ft.Page):
             content=ft.Column(
                 controls=[
                     ft.Text(
-                        f"{codigo_lote(lote['id'])} "
-                        f"— {lote['nome']}"
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
                     ),
 
                     ft.Text(
@@ -1036,7 +1062,6 @@ def tela_lotes(page: ft.Page):
 
                     mensagem_saida
                 ],
-
                 tight=True,
                 spacing=12
             ),
@@ -1051,59 +1076,196 @@ def tela_lotes(page: ft.Page):
                 ft.Button(
                     content="Encerrar lote",
                     icon=ft.Icons.CHECK_CIRCLE,
-                    on_click=confirmar
+                    on_click=confirmar_encerramento
                 )
-            ]
+            ],
+
+            actions_alignment=(
+                ft.MainAxisAlignment.END
+            )
         )
 
         page.show_dialog(dialogo)
 
-    # ======================================================
+        # ======================================================
     # REATIVAR LOTE
     # ======================================================
 
     def confirmar_reativacao(lote):
 
+        if lote["fazenda_id"] != fazenda_atual_id():
+            return
+
+        if not pode_acessar_fazenda():
+            return
+
+        piquetes = listar_piquetes_fazenda(
+            fazenda_atual_id()
+        )
+
+        campo_piquete_retorno = ft.Dropdown(
+            label="Piquete de retorno",
+            width=450
+        )
+
+        for piquete in piquetes:
+
+            campo_piquete_retorno.options.append(
+                ft.DropdownOption(
+                    key=str(
+                        piquete["id"]
+                    ),
+                    text=(
+                        f"{codigo_piquete(piquete['id'])}"
+                        f" — {piquete['nome']}"
+                    )
+                )
+            )
+
+        campo_data_retorno = ft.TextField(
+            label="Data de retorno",
+            hint_text="DD/MM/AAAA",
+            width=450,
+            max_length=10,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            on_change=aplicar_mascara_data
+        )
+
+        mensagem_reativacao = ft.Text()
+
         def executar(e):
 
             if not pode_acessar_fazenda():
+
+                mensagem_reativacao.value = (
+                    "Acesso não autorizado."
+                )
+
+                mensagem_reativacao.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
                 return
 
-            if (
-                lote["fazenda_id"]
-                != fazenda_atual_id()
-            ):
+            if campo_piquete_retorno.value is None:
+
+                mensagem_reativacao.value = (
+                    "Selecione o piquete de retorno."
+                )
+
+                mensagem_reativacao.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
                 return
 
-            reativar_lote(
-                lote_id=lote["id"],
-                fazenda_id=fazenda_atual_id()
+            data_retorno = (
+                data_interface_para_banco(
+                    campo_data_retorno.value
+                )
             )
+
+            if data_retorno is None:
+
+                mensagem_reativacao.value = (
+                    "Informe uma data válida "
+                    "no formato DD/MM/AAAA."
+                )
+
+                mensagem_reativacao.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
+                return
+
+            try:
+
+                reativar_lote(
+                    lote_id=lote["id"],
+                    fazenda_id=fazenda_atual_id(),
+                    piquete_id=int(
+                        campo_piquete_retorno.value
+                    ),
+                    data_retorno=data_retorno
+                )
+
+            except ValueError as erro:
+
+                mensagem_reativacao.value = (
+                    str(erro)
+                )
+
+                mensagem_reativacao.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
+                return
 
             page.pop_dialog()
 
             mensagem.value = (
                 f"{codigo_lote(lote['id'])} "
-                "reativado."
+                "reativado com sucesso."
             )
 
             mensagem.color = ft.Colors.GREEN
 
             carregar_lotes()
 
-        dialogo = ft.AlertDialog(
-            modal=True,
+        if not campo_piquete_retorno.options:
 
-            title=ft.Text(
-                "Reativar lote?"
-            ),
+            conteudo = ft.Column(
+                controls=[
+                    ft.Text(
+                        "Não existem piquetes ativos "
+                        "disponíveis nesta fazenda."
+                    )
+                ],
+                tight=True
+            )
 
-            content=ft.Text(
-                f"{codigo_lote(lote['id'])} "
-                f"— {lote['nome']}"
-            ),
+            acoes = [
+                ft.TextButton(
+                    "Fechar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                )
+            ]
 
-            actions=[
+        else:
+
+            conteudo = ft.Column(
+                controls=[
+                    ft.Text(
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
+                    ),
+
+                    ft.Text(
+                        f"Última saída: "
+                        f"{data_banco_para_interface(lote['data_saida'])}"
+                    ),
+
+                    ft.Text(
+                        "Informe onde e quando este lote "
+                        "voltará à atividade."
+                    ),
+
+                    campo_piquete_retorno,
+
+                    campo_data_retorno,
+
+                    mensagem_reativacao
+                ],
+                tight=True,
+                spacing=12
+            )
+
+            acoes = [
                 ft.TextButton(
                     "Cancelar",
                     on_click=lambda e:
@@ -1111,11 +1273,26 @@ def tela_lotes(page: ft.Page):
                 ),
 
                 ft.Button(
-                    content="Reativar",
+                    content="Reativar lote",
                     icon=ft.Icons.REFRESH,
                     on_click=executar
                 )
             ]
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+
+            title=ft.Text(
+                "Reativar lote"
+            ),
+
+            content=conteudo,
+
+            actions=acoes,
+
+            actions_alignment=(
+                ft.MainAxisAlignment.END
+            )
         )
 
         page.show_dialog(dialogo)
@@ -1133,8 +1310,12 @@ def tela_lotes(page: ft.Page):
         if fazenda_id is None:
 
             lista_lotes.controls.append(
-                ft.Text(
-                    "Selecione uma fazenda."
+                ft.Container(
+                    content=ft.Text(
+                        "Selecione uma fazenda "
+                        "para visualizar os lotes."
+                    ),
+                    padding=20
                 )
             )
 
@@ -1145,8 +1326,8 @@ def tela_lotes(page: ft.Page):
 
             lista_lotes.controls.append(
                 ft.Text(
-                    "Você não possui acesso "
-                    "operacional a esta fazenda.",
+                    "Você não possui acesso operacional "
+                    "a esta fazenda.",
                     color=ft.Colors.RED
                 )
             )
@@ -1189,77 +1370,27 @@ def tela_lotes(page: ft.Page):
                 lote["status"] == "ATIVO"
             )
 
-            piquete_texto = (
+            piquete_nome = (
                 lote["piquete_nome"]
                 or "Não informado"
             )
 
-            peso_texto = (
-                f"{lote['peso_medio_entrada']:.2f} kg"
+            peso_medio = (
+                (
+                    f"{lote['peso_medio_entrada']:.2f} kg"
+                )
                 if lote["peso_medio_entrada"]
                 is not None
                 else "Não informado"
             )
 
-            entrada_texto = (
+            data_entrada = (
                 data_banco_para_interface(
                     lote["data_entrada"]
                 )
                 if lote["data_entrada"]
                 else "Não informada"
             )
-            data_banco_para_interface(
-                lote["data_saida"]
-            )
-            botoes = []
-
-            if ativo:
-
-                botoes.extend([
-                    ft.Button(
-                        content="Editar",
-                        icon=ft.Icons.EDIT,
-                        on_click=lambda e,
-                        l=lote:
-                        abrir_edicao(l)
-                    ),
-
-                    ft.Button(
-                        content="Movimentar",
-                        icon=ft.Icons.SWAP_HORIZ,
-                        on_click=lambda e,
-                        l=lote:
-                        abrir_movimentacao(l)
-                    ),
-
-                    ft.Button(
-                        content="Histórico",
-                        icon=ft.Icons.HISTORY,
-                        on_click=lambda e,
-                        l=lote:
-                        abrir_historico_piquetes(l)
-                    ),
-
-                    ft.Button(
-                        content="Encerrar",
-                        icon=ft.Icons.CHECK_CIRCLE,
-                        on_click=lambda e,
-                        l=lote:
-                        abrir_encerramento(l)
-                    )
-                ])
-
-            else:
-
-                botoes.append(
-                    ft.Button(
-                        content="Reativar",
-                        icon=ft.Icons.REFRESH,
-                        on_click=lambda e,
-                        l=lote:
-                        confirmar_reativacao(l)
-                    )
-                )
 
             controles = [
                 ft.Row(
@@ -1300,38 +1431,111 @@ def tela_lotes(page: ft.Page):
                 ),
 
                 ft.Text(
-                    f"Piquete: {piquete_texto}"
+                    (
+                        "Localização atual: "
+                        f"{codigo_piquete(lote['piquete_id'])}"
+                        f" — {piquete_nome}"
+                    )
                 ),
 
                 ft.Text(
-                    f"Animais: "
+                    f"Número de animais: "
                     f"{lote['numero_animais']}"
                 ),
 
                 ft.Text(
                     f"Peso médio de entrada: "
-                    f"{peso_texto}"
+                    f"{peso_medio}"
                 ),
 
                 ft.Text(
                     f"Data de entrada: "
-                    f"{entrada_texto}"
-                ),
+                    f"{data_entrada}"
+                )
             ]
 
             if not ativo:
 
+                data_saida = (
+                    data_banco_para_interface(
+                        lote["data_saida"]
+                    )
+                    if lote["data_saida"]
+                    else "Não informada"
+                )
+
                 controles.append(
                     ft.Text(
                         f"Data de saída: "
-                        f"{lote['data_saida'] or 'Não informada'}"
+                        f"{data_saida}"
                     )
                 )
+
+            botoes = []
+
+            if ativo:
+
+                botoes.extend([
+                    ft.Button(
+                        content="Editar",
+                        icon=ft.Icons.EDIT,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_edicao(l)
+                    ),
+
+                    ft.Button(
+                        content="Movimentar",
+                        icon=ft.Icons.SWAP_HORIZ,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_movimentacao(l)
+                    ),
+
+                    ft.Button(
+                        content="Histórico",
+                        icon=ft.Icons.HISTORY,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_historico_piquetes(l)
+                    ),
+
+                    ft.Button(
+                        content="Encerrar",
+                        icon=ft.Icons.CHECK_CIRCLE,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_encerramento(l)
+                    )
+                ])
+
+            else:
+
+                # Mesmo encerrado, o histórico
+                # continua disponível.
+                botoes.extend([
+                    ft.Button(
+                        content="Histórico",
+                        icon=ft.Icons.HISTORY,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_historico_piquetes(l)
+                    ),
+
+                    ft.Button(
+                        content="Reativar",
+                        icon=ft.Icons.REFRESH,
+                        on_click=lambda e,
+                        l=lote:
+                        confirmar_reativacao(l)
+                    )
+                ])
 
             controles.append(
                 ft.Row(
                     controls=botoes,
-                    spacing=10
+                    spacing=10,
+                    wrap=True
                 )
             )
 
@@ -1363,6 +1567,10 @@ def tela_lotes(page: ft.Page):
         carregar_lotes
     )
 
+    # ======================================================
+    # INICIALIZAÇÃO
+    # ======================================================
+
     carregar_piquetes_dropdown()
     carregar_lotes()
 
@@ -1386,14 +1594,15 @@ def tela_lotes(page: ft.Page):
             ),
 
             ft.Text(
-                "Cadastre os grupos de animais "
-                "e associe cada lote ao seu piquete atual."
+                "Cadastre os grupos de animais, "
+                "acompanhe sua localização atual e "
+                "preserve o histórico de movimentações."
             ),
 
             ft.Divider(),
 
             # ==============================================
-            # CADASTRO
+            # NOVO LOTE
             # ==============================================
 
             ft.Text(
@@ -1411,6 +1620,12 @@ def tela_lotes(page: ft.Page):
             campo_peso_medio,
 
             campo_data_entrada,
+
+            ft.Text(
+                "Digite apenas os números da data. "
+                "Ex.: 06092026 → 06/09/2026",
+                size=12
+            ),
 
             ft.Button(
                 content="Cadastrar lote",

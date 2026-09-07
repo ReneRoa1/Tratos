@@ -7,6 +7,8 @@ from screens.layout import layout_principal
 from screens.organizacoes import tela_organizacoes
 from screens.fazendas import tela_fazendas
 from screens.piquetes import tela_piquetes
+from screens.lotes import tela_lotes
+from screens.alimentos import tela_alimentos
 from screens.usuarios import tela_usuarios
 from screens.consultores import tela_consultores
 from screens.carteira_consultores import (
@@ -126,6 +128,24 @@ def main(page: ft.Page):
 
             area_conteudo.controls.append(
                 tela_piquetes(page)
+            )
+        # ==========================================
+        # LOTES
+        # ==========================================
+
+        elif rota == "lotes":
+
+            area_conteudo.controls.append(
+                tela_lotes(page)
+            )
+        # ==========================================
+        # ALIMENTOS
+        # ==========================================
+
+        elif rota == "alimentos":
+
+            area_conteudo.controls.append(
+                tela_alimentos(page)
             )
         # ==========================================
         # USUÁRIOS

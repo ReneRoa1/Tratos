@@ -347,7 +347,68 @@ def criar_tabelas():
                 WHERE h.lote_id = l.id
             );
     """)
+    # ======================================================
+    # ALIMENTOS
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alimentos (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            nome TEXT NOT NULL,
+
+            categoria TEXT NOT NULL,
+
+            unidade TEXT NOT NULL DEFAULT 'kg',
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id)
+
+        );
+    """)
         # ======================================================
+    # HISTÓRICO DE MATÉRIA SECA DOS ALIMENTOS
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alimento_ms_historico (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            alimento_id INTEGER NOT NULL,
+
+            fazenda_id INTEGER NOT NULL,
+
+            materia_seca REAL NOT NULL,
+
+            data_vigencia TEXT NOT NULL,
+
+            observacao TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (alimento_id)
+                REFERENCES alimentos(id),
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            UNIQUE (
+                alimento_id,
+                data_vigencia
+            )
+        );
+    """)
+    # ======================================================
     # CAMPOS DE AUDITORIA
     # ======================================================
 
@@ -393,7 +454,7 @@ def criar_tabelas():
         "INTEGER REFERENCES usuarios(id)"
     )
 
-        # ======================================================
+    # ======================================================
     # RESPONSÁVEIS TÉCNICOS PELAS FAZENDAS
     # ======================================================
 
