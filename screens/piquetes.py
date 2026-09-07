@@ -18,13 +18,6 @@ from services.identificadores import codigo_piquete
 def tela_piquetes(page: ft.Page):
 
     # ======================================================
-    # CONTEXTO DA FAZENDA
-    # ======================================================
-
-    fazenda_id = sessao.fazenda_atual_id
-    fazenda_nome = sessao.fazenda_atual_nome
-
-    # ======================================================
     # CAMPOS
     # ======================================================
 
@@ -36,14 +29,14 @@ def tela_piquetes(page: ft.Page):
 
     campo_identificacao = ft.TextField(
         label="Identificação",
-        hint_text="Ex.: Retiro Norte, Área 01, P-01",
+        hint_text="Ex.: Retiro Norte, P-01, Área 03",
         width=500
     )
 
     mensagem = ft.Text()
 
     mostrar_inativos = ft.Switch(
-        label="Mostrar piquetes inativos",
+        label="Mostrar inativos",
         value=False
     )
 
@@ -52,58 +45,92 @@ def tela_piquetes(page: ft.Page):
     )
 
     # ======================================================
+    # FAZENDA ATUAL
+    # ======================================================
+
+    def fazenda_atual_id():
+        return sessao.fazenda_atual_id
+
+    def fazenda_atual_nome():
+        return (
+            sessao.fazenda_atual_nome
+            or "Nenhuma fazenda selecionada"
+        )
+
+    # ======================================================
     # VALIDAÇÃO DE ACESSO
     # ======================================================
 
-    def usuario_pode_acessar_fazenda():
+    def pode_acessar_fazenda():
+
+        fazenda_id = fazenda_atual_id()
 
         if fazenda_id is None:
             return False
 
+        # ADMIN não opera rotina de fazenda
         if sessao.perfil_sistema == "ADMIN":
-            return True
+            return False
 
         if sessao.perfil_sistema == "CONSULTOR":
 
             return consultor_tem_acesso_fazenda(
-                sessao.usuario_id,
-                fazenda_id
+                consultor_id=sessao.usuario_id,
+                fazenda_id=fazenda_id
             )
 
         if sessao.perfil_sistema == "USUARIO":
 
             return usuario_tem_acesso_fazenda(
-                sessao.usuario_id,
-                fazenda_id
+                usuario_id=sessao.usuario_id,
+                fazenda_id=fazenda_id
             )
 
         return False
 
     # ======================================================
-    # CADASTRAR PIQUETE
+    # CADASTRAR
     # ======================================================
 
     def salvar_piquete(e):
 
-        if not usuario_pode_acessar_fazenda():
+        fazenda_id = fazenda_atual_id()
+
+        if fazenda_id is None:
 
             mensagem.value = (
-                "Você não possui acesso a esta fazenda."
+                "Selecione uma fazenda antes "
+                "de cadastrar um piquete."
             )
-
             mensagem.color = ft.Colors.RED
 
             page.update()
             return
 
-        nome = campo_nome.value.strip()
+        if not pode_acessar_fazenda():
+
+            mensagem.value = (
+                "Você não possui permissão "
+                "para cadastrar piquetes nesta fazenda."
+            )
+            mensagem.color = ft.Colors.RED
+
+            page.update()
+            return
+
+        nome = (
+            campo_nome.value or ""
+        ).strip()
+
+        identificacao = (
+            campo_identificacao.value or ""
+        ).strip()
 
         if not nome:
 
             mensagem.value = (
                 "Informe o nome do piquete."
             )
-
             mensagem.color = ft.Colors.RED
 
             page.update()
@@ -113,8 +140,9 @@ def tela_piquetes(page: ft.Page):
             fazenda_id=fazenda_id,
             nome=nome,
             identificacao=(
-                campo_identificacao.value.strip()
-                or None
+                identificacao
+                if identificacao
+                else None
             )
         )
 
@@ -122,44 +150,45 @@ def tela_piquetes(page: ft.Page):
         campo_identificacao.value = ""
 
         mensagem.value = (
-            f"Piquete {codigo_piquete(piquete_id)} "
-            f"cadastrado com sucesso."
+            f"{codigo_piquete(piquete_id)} "
+            "cadastrado com sucesso."
         )
 
         mensagem.color = ft.Colors.GREEN
 
         carregar_piquetes()
 
-        page.update()
-
     # ======================================================
-    # EDITAR PIQUETE
+    # EDITAR
     # ======================================================
 
     def abrir_edicao(piquete):
 
-        if not usuario_pode_acessar_fazenda():
+        if not pode_acessar_fazenda():
 
-            page.show_dialog(
-                ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text(
-                        "Acesso não autorizado"
-                    ),
-                    content=ft.Text(
-                        "Você não possui acesso "
-                        "a esta fazenda."
-                    ),
-                    actions=[
-                        ft.Button(
-                            content="OK",
-                            on_click=lambda e:
-                            page.pop_dialog()
-                        )
-                    ]
-                )
+            mensagem.value = (
+                "Você não possui permissão "
+                "para editar este piquete."
             )
+            mensagem.color = ft.Colors.RED
 
+            page.update()
+            return
+
+        # Segurança adicional:
+        # o piquete precisa pertencer à fazenda atual
+        if (
+            piquete["fazenda_id"]
+            != fazenda_atual_id()
+        ):
+
+            mensagem.value = (
+                "Este piquete não pertence "
+                "à fazenda selecionada."
+            )
+            mensagem.color = ft.Colors.RED
+
+            page.update()
             return
 
         editar_nome = ft.TextField(
@@ -181,54 +210,66 @@ def tela_piquetes(page: ft.Page):
 
         def salvar_alteracoes(e):
 
-            if not usuario_pode_acessar_fazenda():
+            nome = (
+                editar_nome.value or ""
+            ).strip()
 
-                mensagem_edicao.value = (
-                    "Acesso não autorizado."
-                )
-
-                mensagem_edicao.color = ft.Colors.RED
-
-                page.update()
-                return
-
-            nome = editar_nome.value.strip()
+            identificacao = (
+                editar_identificacao.value
+                or ""
+            ).strip()
 
             if not nome:
 
                 mensagem_edicao.value = (
                     "Informe o nome do piquete."
                 )
+                mensagem_edicao.color = (
+                    ft.Colors.RED
+                )
 
-                mensagem_edicao.color = ft.Colors.RED
+                page.update()
+                return
+
+            if not pode_acessar_fazenda():
+
+                mensagem_edicao.value = (
+                    "Acesso não autorizado."
+                )
+                mensagem_edicao.color = (
+                    ft.Colors.RED
+                )
 
                 page.update()
                 return
 
             atualizar_piquete(
                 piquete_id=piquete["id"],
-                fazenda_id=fazenda_id,
+                fazenda_id=fazenda_atual_id(),
                 nome=nome,
                 identificacao=(
-                    editar_identificacao.value.strip()
-                    or None
+                    identificacao
+                    if identificacao
+                    else None
                 )
             )
 
             page.pop_dialog()
 
-            carregar_piquetes()
+            mensagem.value = (
+                f"{codigo_piquete(piquete['id'])} "
+                "atualizado com sucesso."
+            )
+            mensagem.color = ft.Colors.GREEN
 
-            page.update()
+            carregar_piquetes()
 
         dialogo = ft.AlertDialog(
             modal=True,
-
             title=ft.Text(
                 f"Editar "
                 f"{codigo_piquete(piquete['id'])}"
             ),
-
             content=ft.Column(
                 controls=[
                     editar_nome,
@@ -238,21 +279,18 @@ def tela_piquetes(page: ft.Page):
                 tight=True,
                 spacing=12
             ),
-
             actions=[
                 ft.TextButton(
                     "Cancelar",
                     on_click=lambda e:
                     page.pop_dialog()
                 ),
-
                 ft.Button(
-                    content="Salvar alterações",
+                    content="Salvar",
                     icon=ft.Icons.SAVE,
                     on_click=salvar_alteracoes
                 )
             ],
-
             actions_alignment=(
                 ft.MainAxisAlignment.END
             )
@@ -261,21 +299,26 @@ def tela_piquetes(page: ft.Page):
         page.show_dialog(dialogo)
 
     # ======================================================
-    # DESATIVAR PIQUETE
+    # DESATIVAR
     # ======================================================
 
     def confirmar_desativacao(piquete):
 
-        def confirmar(e):
+        if (
+            piquete["fazenda_id"]
+            != fazenda_atual_id()
+        ):
+            return
 
-            if not usuario_pode_acessar_fazenda():
+        def executar(e):
+
+            if not pode_acessar_fazenda():
 
                 page.pop_dialog()
 
                 mensagem.value = (
                     "Acesso não autorizado."
                 )
-
                 mensagem.color = ft.Colors.RED
 
                 page.update()
@@ -287,76 +330,71 @@ def tela_piquetes(page: ft.Page):
 
             page.pop_dialog()
 
-            carregar_piquetes()
+            mensagem.value = (
+                f"{codigo_piquete(piquete['id'])} "
+                "desativado."
+            )
 
-            page.update()
+            mensagem.color = ft.Colors.ORANGE
+
+            carregar_piquetes()
 
         dialogo = ft.AlertDialog(
             modal=True,
-
             title=ft.Text(
-                "Desativar piquete?"
+                "Desativar piquete"
             ),
-
             content=ft.Column(
                 controls=[
                     ft.Text(
-                        f'{codigo_piquete(piquete["id"])} '
-                        f'— {piquete["nome"]}'
+                        f"{codigo_piquete(piquete['id'])} "
+                        f"— {piquete['nome']}"
                     ),
-
                     ft.Text(
-                        "O piquete deixará de aparecer "
-                        "nas listas de registros ativos."
-                    ),
-
-                    ft.Text(
-                        "O histórico continuará "
-                        "armazenado."
+                        "O piquete será desativado, "
+                        "mas seu histórico será preservado."
                     )
                 ],
-
                 tight=True,
                 spacing=10
             ),
-
             actions=[
                 ft.TextButton(
                     "Cancelar",
                     on_click=lambda e:
                     page.pop_dialog()
                 ),
-
                 ft.Button(
                     content="Desativar",
                     icon=ft.Icons.BLOCK,
-                    on_click=confirmar
+                    on_click=executar
                 )
-            ],
-
-            actions_alignment=(
-                ft.MainAxisAlignment.END
-            )
+            ]
         )
 
         page.show_dialog(dialogo)
 
     # ======================================================
-    # REATIVAR PIQUETE
+    # REATIVAR
     # ======================================================
 
     def confirmar_reativacao(piquete):
 
-        def confirmar(e):
+        if (
+            piquete["fazenda_id"]
+            != fazenda_atual_id()
+        ):
+            return
 
-            if not usuario_pode_acessar_fazenda():
+        def executar(e):
+
+            if not pode_acessar_fazenda():
 
                 page.pop_dialog()
 
                 mensagem.value = (
                     "Acesso não autorizado."
                 )
-
                 mensagem.color = ft.Colors.RED
 
                 page.update()
@@ -368,39 +406,36 @@ def tela_piquetes(page: ft.Page):
 
             page.pop_dialog()
 
-            carregar_piquetes()
+            mensagem.value = (
+                f"{codigo_piquete(piquete['id'])} "
+                "reativado."
+            )
 
-            page.update()
+            mensagem.color = ft.Colors.GREEN
+
+            carregar_piquetes()
 
         dialogo = ft.AlertDialog(
             modal=True,
-
             title=ft.Text(
-                "Reativar piquete?"
+                "Reativar piquete"
             ),
-
             content=ft.Text(
-                f'{codigo_piquete(piquete["id"])} '
-                f'— {piquete["nome"]}'
+                f"{codigo_piquete(piquete['id'])} "
+                f"— {piquete['nome']}"
             ),
-
             actions=[
                 ft.TextButton(
                     "Cancelar",
                     on_click=lambda e:
                     page.pop_dialog()
                 ),
-
                 ft.Button(
                     content="Reativar",
                     icon=ft.Icons.REFRESH,
-                    on_click=confirmar
+                    on_click=executar
                 )
-            ],
-
-            actions_alignment=(
-                ft.MainAxisAlignment.END
-            )
+            ]
         )
 
         page.show_dialog(dialogo)
@@ -413,23 +448,28 @@ def tela_piquetes(page: ft.Page):
 
         lista_piquetes.controls.clear()
 
+        fazenda_id = fazenda_atual_id()
+
         if fazenda_id is None:
 
             lista_piquetes.controls.append(
-                ft.Text(
-                    "Selecione uma fazenda para "
-                    "visualizar os piquetes."
+                ft.Container(
+                    content=ft.Text(
+                        "Selecione uma fazenda no topo "
+                        "para visualizar os piquetes."
+                    ),
+                    padding=20
                 )
             )
 
             page.update()
             return
 
-        if not usuario_pode_acessar_fazenda():
+        if not pode_acessar_fazenda():
 
             lista_piquetes.controls.append(
                 ft.Text(
-                    "Você não possui acesso "
+                    "Você não possui acesso operacional "
                     "a esta fazenda.",
                     color=ft.Colors.RED
                 )
@@ -457,9 +497,12 @@ def tela_piquetes(page: ft.Page):
         if not piquetes:
 
             lista_piquetes.controls.append(
-                ft.Text(
-                    "Nenhum piquete cadastrado "
-                    "nesta fazenda."
+                ft.Container(
+                    content=ft.Text(
+                        "Nenhum piquete cadastrado "
+                        "nesta fazenda."
+                    ),
+                    padding=20
                 )
             )
 
@@ -468,8 +511,8 @@ def tela_piquetes(page: ft.Page):
 
         for piquete in piquetes:
 
-            codigo = codigo_piquete(
-                piquete["id"]
+            ativo = bool(
+                piquete["ativo"]
             )
 
             identificacao = (
@@ -477,80 +520,26 @@ def tela_piquetes(page: ft.Page):
                 or "Não informada"
             )
 
-            ativo = bool(
-                piquete["ativo"]
-            )
-
-            dados = [
-
-                ft.Text(
-                    codigo,
-                    size=12,
-                    weight=ft.FontWeight.BOLD
-                ),
-
-                ft.Text(
-                    piquete["nome"],
-                    size=20,
-                    weight=ft.FontWeight.BOLD
-                ),
-
-                ft.Text(
-                    f"Fazenda: "
-                    f"{piquete['fazenda_nome']}"
-                ),
-
-                ft.Text(
-                    f"Identificação: "
-                    f"{identificacao}"
-                )
-            ]
-
-            if ativo:
-
-                dados.append(
-                    ft.Text(
-                        "● ATIVO",
-                        color=ft.Colors.GREEN,
-                        weight=ft.FontWeight.BOLD
-                    )
-                )
-
-            else:
-
-                dados.append(
-                    ft.Text(
-                        "● INATIVO",
-                        color=ft.Colors.RED,
-                        weight=ft.FontWeight.BOLD
-                    )
-                )
-
             botoes = []
 
             if ativo:
 
-                botoes.append(
+                botoes.extend([
                     ft.Button(
                         content="Editar",
                         icon=ft.Icons.EDIT,
-
                         on_click=lambda e,
                         p=piquete:
                         abrir_edicao(p)
-                    )
-                )
-
-                botoes.append(
+                    ),
                     ft.Button(
                         content="Desativar",
                         icon=ft.Icons.BLOCK,
-
                         on_click=lambda e,
                         p=piquete:
                         confirmar_desativacao(p)
                     )
-                )
+                ])
 
             else:
 
@@ -558,36 +547,79 @@ def tela_piquetes(page: ft.Page):
                     ft.Button(
                         content="Reativar",
                         icon=ft.Icons.REFRESH,
-
                         on_click=lambda e,
                         p=piquete:
                         confirmar_reativacao(p)
                     )
                 )
 
-            dados.append(
-                ft.Row(
-                    controls=botoes,
-                    spacing=10
-                )
-            )
-
             lista_piquetes.controls.append(
-
                 ft.Container(
-
                     content=ft.Column(
-                        controls=dados,
-                        spacing=6
+                        controls=[
+                            ft.Row(
+                                controls=[
+                                    ft.Text(
+                                        codigo_piquete(
+                                            piquete["id"]
+                                        ),
+                                        size=13,
+                                        weight=(
+                                            ft.FontWeight.BOLD
+                                        )
+                                    ),
+                                    ft.Text(
+                                        (
+                                            "ATIVO"
+                                            if ativo
+                                            else "INATIVO"
+                                        ),
+                                        color=(
+                                            ft.Colors.GREEN
+                                            if ativo
+                                            else ft.Colors.RED
+                                        ),
+                                        weight=(
+                                            ft.FontWeight.BOLD
+                                        )
+                                    )
+                                ],
+                                alignment=(
+                                    ft.MainAxisAlignment
+                                    .SPACE_BETWEEN
+                                )
+                            ),
+
+                            ft.Text(
+                                piquete["nome"],
+                                size=20,
+                                weight=(
+                                    ft.FontWeight.BOLD
+                                )
+                            ),
+
+                            ft.Text(
+                                f"Identificação: "
+                                f"{identificacao}"
+                            ),
+
+                            ft.Text(
+                                f"Fazenda: "
+                                f"{piquete['fazenda_nome']}"
+                            ),
+
+                            ft.Row(
+                                controls=botoes,
+                                spacing=10
+                            )
+                        ],
+                        spacing=7
                     ),
-
                     padding=18,
-
                     border=ft.Border.all(
                         1,
                         ft.Colors.OUTLINE_VARIANT
                     ),
-
                     border_radius=12
                 )
             )
@@ -599,41 +631,13 @@ def tela_piquetes(page: ft.Page):
     )
 
     # ======================================================
-    # INICIALIZAÇÃO
+    # INTERFACE
     # ======================================================
 
     carregar_piquetes()
 
-    # ======================================================
-    # INTERFACE
-    # ======================================================
-
-    if fazenda_id is None:
-
-        return ft.Column(
-            controls=[
-
-                ft.Text(
-                    "Piquetes",
-                    size=30,
-                    weight=ft.FontWeight.BOLD
-                ),
-
-                ft.Text(
-                    "Selecione uma fazenda no topo "
-                    "do aplicativo para gerenciar "
-                    "os piquetes."
-                )
-
-            ],
-
-            spacing=15
-        )
-
     return ft.Column(
-
         controls=[
-
             ft.Text(
                 "Piquetes",
                 size=30,
@@ -641,22 +645,18 @@ def tela_piquetes(page: ft.Page):
             ),
 
             ft.Text(
-                f"Fazenda atual: {fazenda_nome}",
+                f"Fazenda atual: "
+                f"{fazenda_atual_nome()}",
                 size=18,
                 weight=ft.FontWeight.BOLD
             ),
 
             ft.Text(
-                "Cadastre e gerencie os locais "
-                "físicos onde os lotes de animais "
-                "serão mantidos."
+                "Cadastre os locais físicos onde "
+                "os lotes de animais permanecerão."
             ),
 
             ft.Divider(),
-
-            # ==============================================
-            # NOVO PIQUETE
-            # ==============================================
 
             ft.Text(
                 "Novo piquete",
@@ -678,13 +678,8 @@ def tela_piquetes(page: ft.Page):
 
             ft.Divider(),
 
-            # ==============================================
-            # LISTAGEM
-            # ==============================================
-
             ft.Row(
                 controls=[
-
                     ft.Text(
                         "Piquetes cadastrados",
                         size=20,
@@ -696,17 +691,12 @@ def tela_piquetes(page: ft.Page):
                     ),
 
                     mostrar_inativos
-
                 ]
             ),
 
             lista_piquetes
-
         ],
-
         spacing=15,
-
         scroll=ft.ScrollMode.AUTO,
-
         expand=True
-    )                                                                                    
+    )

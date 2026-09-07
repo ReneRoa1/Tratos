@@ -13,6 +13,10 @@ from database.models import (
     listar_historico_piquetes_lote,
     consultor_tem_acesso_fazenda,
     usuario_tem_acesso_fazenda,
+        definir_consumo_lote,
+    buscar_consumo_atual_lote,
+    listar_historico_consumo_lote,
+    listar_dietas_fazenda,
 )
 
 from services.sessao import sessao
@@ -1296,7 +1300,402 @@ def tela_lotes(page: ft.Page):
         )
 
         page.show_dialog(dialogo)
+        # ======================================================
+    # DEFINIR DIETA E CONSUMO DO LOTE
+    # ======================================================
 
+    def abrir_definicao_consumo(lote):
+
+        if not pode_acessar_fazenda():
+            return
+
+        if lote["fazenda_id"] != fazenda_atual_id():
+            return
+
+        dietas = listar_dietas_fazenda(
+            fazenda_id=fazenda_atual_id(),
+            incluir_arquivadas=False
+        )
+
+        campo_dieta = ft.Dropdown(
+            label="Dieta",
+            width=450
+        )
+
+        for dieta in dietas:
+
+            campo_dieta.options.append(
+                ft.DropdownOption(
+                    key=str(dieta["id"]),
+                    text=(
+                        f"{dieta['nome']} "
+                        f"— V{dieta['versao']}"
+                    )
+                )
+            )
+
+        campo_consumo = ft.TextField(
+            label="Consumo de MS (kg/animal/dia)",
+            hint_text="Ex.: 8,5",
+            width=450,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        campo_data = ft.TextField(
+            label="Início da vigência",
+            hint_text="DD/MM/AAAA",
+            width=450,
+            max_length=10,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            on_change=aplicar_mascara_data
+        )
+
+        texto_calculo = ft.Text(
+            "Necessidade do lote: —"
+        )
+
+        mensagem_consumo = ft.Text()
+
+        # --------------------------------------------------
+        # Mostra cálculo imediatamente
+        # --------------------------------------------------
+
+        def atualizar_previa(e=None):
+
+            consumo = converter_decimal(
+                campo_consumo.value
+            )
+
+            if (
+                consumo is None
+                or consumo <= 0
+            ):
+
+                texto_calculo.value = (
+                    "Necessidade do lote: —"
+                )
+
+            else:
+
+                consumo_lote = (
+                    consumo
+                    * lote["numero_animais"]
+                )
+
+                texto_calculo.value = (
+                    f"Necessidade do lote: "
+                    f"{consumo_lote:.2f} kg MS/dia"
+                )
+
+            page.update()
+
+        campo_consumo.on_change = atualizar_previa
+
+        # --------------------------------------------------
+        # Salvar
+        # --------------------------------------------------
+
+        def confirmar(e):
+
+            if campo_dieta.value is None:
+
+                mensagem_consumo.value = (
+                    "Selecione uma dieta."
+                )
+                mensagem_consumo.color = ft.Colors.RED
+
+                page.update()
+                return
+
+            consumo = converter_decimal(
+                campo_consumo.value
+            )
+
+            if (
+                consumo is None
+                or consumo <= 0
+            ):
+
+                mensagem_consumo.value = (
+                    "Informe um consumo válido "
+                    "em kg MS/animal/dia."
+                )
+
+                mensagem_consumo.color = ft.Colors.RED
+
+                page.update()
+                return
+
+            data_inicio = (
+                data_interface_para_banco(
+                    campo_data.value
+                )
+            )
+
+            if data_inicio is None:
+
+                mensagem_consumo.value = (
+                    "Informe uma data válida "
+                    "no formato DD/MM/AAAA."
+                )
+
+                mensagem_consumo.color = ft.Colors.RED
+
+                page.update()
+                return
+
+            try:
+
+                definir_consumo_lote(
+                    fazenda_id=fazenda_atual_id(),
+                    lote_id=lote["id"],
+                    dieta_id=int(
+                        campo_dieta.value
+                    ),
+                    consumo_ms_animal_dia=consumo,
+                    data_inicio=data_inicio
+                )
+
+            except ValueError as erro:
+
+                mensagem_consumo.value = str(erro)
+                mensagem_consumo.color = ft.Colors.RED
+
+                page.update()
+                return
+
+            page.pop_dialog()
+
+            mensagem.value = (
+                f"Consumo de {codigo_lote(lote['id'])} "
+                "atualizado com sucesso."
+            )
+
+            mensagem.color = ft.Colors.GREEN
+
+            carregar_lotes()
+
+        # --------------------------------------------------
+        # Caso não exista dieta
+        # --------------------------------------------------
+
+        if not dietas:
+
+            conteudo = ft.Column(
+                controls=[
+                    ft.Text(
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
+                    ),
+
+                    ft.Text(
+                        "Nenhuma dieta ativa foi "
+                        "cadastrada nesta fazenda."
+                    ),
+
+                    ft.Text(
+                        "Cadastre uma dieta antes de "
+                        "definir o consumo do lote."
+                    )
+                ],
+                tight=True,
+                spacing=12
+            )
+
+            acoes = [
+                ft.TextButton(
+                    "Fechar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                )
+            ]
+
+        else:
+
+            conteudo = ft.Column(
+                controls=[
+                    ft.Text(
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}",
+                        size=18,
+                        weight=ft.FontWeight.BOLD
+                    ),
+
+                    ft.Text(
+                        f"Animais atuais: "
+                        f"{lote['numero_animais']}"
+                    ),
+
+                    campo_dieta,
+
+                    campo_consumo,
+
+                    texto_calculo,
+
+                    campo_data,
+
+                    ft.Text(
+                        "Digite somente os números da data. "
+                        "Ex.: 07092026 → 07/09/2026",
+                        size=12
+                    ),
+
+                    mensagem_consumo
+                ],
+                tight=True,
+                spacing=12
+            )
+
+            acoes = [
+                ft.TextButton(
+                    "Cancelar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                ),
+
+                ft.Button(
+                    content="Salvar configuração",
+                    icon=ft.Icons.SAVE,
+                    on_click=confirmar
+                )
+            ]
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "Dieta e consumo do lote"
+            ),
+            content=conteudo,
+            actions=acoes,
+            actions_alignment=(
+                ft.MainAxisAlignment.END
+            )
+        )
+
+        page.show_dialog(dialogo)
+        # ======================================================
+    # HISTÓRICO DE CONSUMO DO LOTE
+    # ======================================================
+
+    def abrir_historico_consumo(lote):
+
+        if lote["fazenda_id"] != fazenda_atual_id():
+            return
+
+        historico = (
+            listar_historico_consumo_lote(
+                lote_id=lote["id"],
+                fazenda_id=fazenda_atual_id()
+            )
+        )
+
+        itens = []
+
+        if not historico:
+
+            itens.append(
+                ft.Text(
+                    "Nenhuma configuração de consumo "
+                    "foi registrada para este lote."
+                )
+            )
+
+        else:
+
+            for registro in reversed(historico):
+
+                inicio = data_banco_para_interface(
+                    registro["data_inicio"]
+                )
+
+                if registro["data_fim"]:
+
+                    fim = data_banco_para_interface(
+                        registro["data_fim"]
+                    )
+
+                else:
+
+                    fim = "Atual"
+
+                consumo_lote = (
+                    registro["consumo_ms_animal_dia"]
+                    * lote["numero_animais"]
+                )
+
+                itens.append(
+                    ft.Container(
+                        content=ft.Column(
+                            controls=[
+                                ft.Text(
+                                    (
+                                        f"{registro['dieta_nome']} "
+                                        f"— V{registro['dieta_versao']}"
+                                    ),
+                                    weight=ft.FontWeight.BOLD
+                                ),
+
+                                ft.Text(
+                                    f"Vigência: {inicio} → {fim}"
+                                ),
+
+                                ft.Text(
+                                    (
+                                        "Consumo: "
+                                        f"{registro['consumo_ms_animal_dia']:.2f} "
+                                        "kg MS/animal/dia"
+                                    )
+                                ),
+
+                                ft.Text(
+                                    (
+                                        "Necessidade calculada "
+                                        f"com o número atual de animais: "
+                                        f"{consumo_lote:.2f} kg MS/dia"
+                                    ),
+                                    size=12
+                                )
+                            ],
+                            spacing=5
+                        ),
+
+                        padding=12,
+
+                        border=ft.Border.all(
+                            1,
+                            ft.Colors.OUTLINE_VARIANT
+                        ),
+
+                        border_radius=10
+                    )
+                )
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+
+            title=ft.Text(
+                f"Histórico de consumo — "
+                f"{codigo_lote(lote['id'])}"
+            ),
+
+            content=ft.Column(
+                controls=itens,
+                spacing=10,
+                width=540,
+                height=420,
+                scroll=ft.ScrollMode.AUTO
+            ),
+
+            actions=[
+                ft.TextButton(
+                    "Fechar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                )
+            ]
+        )
+
+        page.show_dialog(dialogo)
     # ======================================================
     # LISTAGEM
     # ======================================================
@@ -1369,7 +1768,34 @@ def tela_lotes(page: ft.Page):
             ativo = (
                 lote["status"] == "ATIVO"
             )
+            consumo_atual = (
+                buscar_consumo_atual_lote(
+                    lote_id=lote["id"],
+                    fazenda_id=fazenda_id
+                )
+            )
+            if consumo_atual:
 
+                dieta_texto = (
+                    f"{consumo_atual['dieta_nome']} "
+                    f"— V{consumo_atual['dieta_versao']}"
+                )
+
+                consumo_animal_texto = (
+                    f"{consumo_atual['consumo_ms_animal_dia']:.2f} "
+                    "kg MS/animal/dia"
+                )
+
+                consumo_lote_texto = (
+                    f"{consumo_atual['consumo_ms_lote_dia']:.2f} "
+                    "kg MS/dia"
+                )
+
+            else:
+
+                dieta_texto = "Não definida"
+                consumo_animal_texto = "Não definido"
+                consumo_lote_texto = "Não calculado"
             piquete_nome = (
                 lote["piquete_nome"]
                 or "Não informado"
@@ -1451,7 +1877,24 @@ def tela_lotes(page: ft.Page):
                 ft.Text(
                     f"Data de entrada: "
                     f"{data_entrada}"
-                )
+                ),
+                                ft.Divider(),
+
+                ft.Text(
+                    f"Dieta atual: {dieta_texto}",
+                    weight=ft.FontWeight.BOLD
+                ),
+
+                ft.Text(
+                    f"Consumo: {consumo_animal_texto}"
+                ),
+
+                ft.Text(
+                    f"Necessidade do lote: "
+                    f"{consumo_lote_texto}"
+                ),
+
+                    
             ]
 
             if not ativo:
@@ -1506,7 +1949,23 @@ def tela_lotes(page: ft.Page):
                         on_click=lambda e,
                         l=lote:
                         abrir_encerramento(l)
-                    )
+                    ),
+                        ft.Button(
+                        content="Dieta / Consumo",
+                        icon=ft.Icons.RESTAURANT,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_definicao_consumo(l)
+                    ),
+
+                    ft.Button(
+                        content="Histórico de consumo",
+                        icon=ft.Icons.QUERY_STATS,
+                        on_click=lambda e,
+                        l=lote:
+                        abrir_historico_consumo(l)
+                    ),
+
                 ])
 
             else:
