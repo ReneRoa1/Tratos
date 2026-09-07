@@ -275,6 +275,79 @@ def criar_tabelas():
         );
     """)
         # ======================================================
+    # HISTÓRICO DE MOVIMENTAÇÃO DOS LOTES ENTRE PIQUETES
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lotes_piquetes_historico (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            lote_id INTEGER NOT NULL,
+
+            fazenda_id INTEGER NOT NULL,
+
+            piquete_id INTEGER NOT NULL,
+
+            data_inicio TEXT NOT NULL,
+
+            data_fim TEXT,
+
+            ativo INTEGER NOT NULL DEFAULT 1,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (lote_id)
+                REFERENCES lotes(id),
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (piquete_id)
+                REFERENCES piquetes(id)
+
+        );
+    """)
+        # ======================================================
+    # CRIA HISTÓRICO INICIAL PARA LOTES JÁ EXISTENTES
+    # ======================================================
+
+    cursor.execute("""
+        INSERT INTO lotes_piquetes_historico (
+            lote_id,
+            fazenda_id,
+            piquete_id,
+            data_inicio,
+            ativo
+        )
+
+        SELECT
+            l.id,
+            l.fazenda_id,
+            l.piquete_id,
+            COALESCE(
+                l.data_entrada,
+                DATE(l.criado_em),
+                DATE('now')
+            ),
+            CASE
+                WHEN l.status = 'ATIVO' THEN 1
+                ELSE 0
+            END
+
+        FROM lotes AS l
+
+        WHERE
+            l.piquete_id IS NOT NULL
+
+            AND NOT EXISTS (
+                SELECT 1
+                FROM lotes_piquetes_historico AS h
+                WHERE h.lote_id = l.id
+            );
+    """)
+        # ======================================================
     # CAMPOS DE AUDITORIA
     # ======================================================
 

@@ -2016,3 +2016,729 @@ def listar_usuarios_consultor_fazenda(
 
     finally:
         conn.close()
+
+# ==========================================================
+# LOTES
+# ==========================================================
+
+def cadastrar_lote(
+    fazenda_id,
+    piquete_id,
+    nome,
+    numero_animais,
+    peso_medio_entrada=None,
+    data_entrada=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # Segurança:
+        # o piquete precisa pertencer à mesma fazenda
+        piquete = cursor.execute(
+            """
+            SELECT id
+            FROM piquetes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (
+                piquete_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if piquete is None:
+            raise ValueError(
+                "O piquete informado não pertence "
+                "à fazenda selecionada ou está inativo."
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO lotes (
+                fazenda_id,
+                piquete_id,
+                nome,
+                numero_animais,
+                peso_medio_entrada,
+                data_entrada,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'ATIVO')
+            """,
+            (
+                fazenda_id,
+                piquete_id,
+                nome,
+                numero_animais,
+                peso_medio_entrada,
+                data_entrada
+            )
+        )
+
+        lote_id = cursor.lastrowid
+
+        # --------------------------------------------------
+        # Cria o primeiro vínculo histórico do lote
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO lotes_piquetes_historico (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_inicio,
+                ativo
+            )
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_entrada
+            )
+        )
+
+        conn.commit()
+
+        return lote_id
+
+    finally:
+        conn.close()
+
+
+def listar_lotes_fazenda(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                l.id,
+                l.fazenda_id,
+                l.piquete_id,
+                l.nome,
+                l.numero_animais,
+                l.peso_medio_entrada,
+                l.data_entrada,
+                l.data_saida,
+                l.status,
+                l.criado_em,
+
+                p.nome AS piquete_nome,
+                p.identificacao AS piquete_identificacao,
+
+                f.nome AS fazenda_nome
+
+            FROM lotes AS l
+
+            LEFT JOIN piquetes AS p
+                ON p.id = l.piquete_id
+
+            INNER JOIN fazendas AS f
+                ON f.id = l.fazenda_id
+
+            WHERE
+                l.fazenda_id = ?
+                AND l.status = 'ATIVO'
+
+            ORDER BY l.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def listar_lotes_fazenda_todos(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                l.id,
+                l.fazenda_id,
+                l.piquete_id,
+                l.nome,
+                l.numero_animais,
+                l.peso_medio_entrada,
+                l.data_entrada,
+                l.data_saida,
+                l.status,
+                l.criado_em,
+
+                p.nome AS piquete_nome,
+                p.identificacao AS piquete_identificacao,
+
+                f.nome AS fazenda_nome
+
+            FROM lotes AS l
+
+            LEFT JOIN piquetes AS p
+                ON p.id = l.piquete_id
+
+            INNER JOIN fazendas AS f
+                ON f.id = l.fazenda_id
+
+            WHERE
+                l.fazenda_id = ?
+
+            ORDER BY l.nome
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_lote_por_id(
+    lote_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                l.id,
+                l.fazenda_id,
+                l.piquete_id,
+                l.nome,
+                l.numero_animais,
+                l.peso_medio_entrada,
+                l.data_entrada,
+                l.data_saida,
+                l.status,
+                l.criado_em,
+
+                p.nome AS piquete_nome,
+                f.nome AS fazenda_nome
+
+            FROM lotes AS l
+
+            LEFT JOIN piquetes AS p
+                ON p.id = l.piquete_id
+
+            INNER JOIN fazendas AS f
+                ON f.id = l.fazenda_id
+
+            WHERE l.id = ?
+
+            LIMIT 1
+            """,
+            (lote_id,)
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def atualizar_lote(
+    lote_id,
+    fazenda_id,
+    nome,
+    numero_animais,
+    peso_medio_entrada=None,
+    data_entrada=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            UPDATE lotes
+
+            SET
+                nome = ?,
+                numero_animais = ?,
+                peso_medio_entrada = ?,
+                data_entrada = ?
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                nome,
+                numero_animais,
+                peso_medio_entrada,
+                data_entrada,
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def encerrar_lote(
+    lote_id,
+    fazenda_id,
+    data_saida=None
+):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            UPDATE lotes
+
+            SET
+                status = 'ENCERRADO',
+                data_saida = ?
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND status = 'ATIVO'
+            """,
+            (
+                data_saida,
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+
+def reativar_lote(
+    lote_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        conn.execute(
+            """
+            UPDATE lotes
+
+            SET
+                status = 'ATIVO',
+                data_saida = NULL
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()
+
+# ==========================================================
+# HISTÓRICO DE MOVIMENTAÇÃO DOS LOTES ENTRE PIQUETES
+# ==========================================================
+
+def registrar_entrada_lote_piquete(
+    lote_id,
+    fazenda_id,
+    piquete_id,
+    data_inicio
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Valida se o lote pertence à fazenda
+        # --------------------------------------------------
+
+        lote = cursor.execute(
+            """
+            SELECT id
+            FROM lotes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "O lote não pertence à fazenda selecionada."
+            )
+
+        # --------------------------------------------------
+        # Valida se o piquete pertence à fazenda
+        # --------------------------------------------------
+
+        piquete = cursor.execute(
+            """
+            SELECT id
+            FROM piquetes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (
+                piquete_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if piquete is None:
+            raise ValueError(
+                "O piquete não pertence à fazenda "
+                "selecionada ou está inativo."
+            )
+
+        # --------------------------------------------------
+        # Impede dois vínculos atuais simultâneos
+        # --------------------------------------------------
+
+        vinculo_atual = cursor.execute(
+            """
+            SELECT id
+            FROM lotes_piquetes_historico
+            WHERE
+                lote_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (lote_id,)
+        ).fetchone()
+
+        if vinculo_atual is not None:
+            raise ValueError(
+                "O lote já possui um piquete atual."
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO lotes_piquetes_historico (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_inicio,
+                ativo
+            )
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_inicio
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def buscar_piquete_atual_lote(
+    lote_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                h.id,
+                h.lote_id,
+                h.fazenda_id,
+                h.piquete_id,
+                h.data_inicio,
+                h.data_fim,
+                h.ativo,
+
+                p.nome AS piquete_nome,
+                p.identificacao
+                    AS piquete_identificacao
+
+            FROM lotes_piquetes_historico AS h
+
+            INNER JOIN piquetes AS p
+                ON p.id = h.piquete_id
+
+            WHERE
+                h.lote_id = ?
+                AND h.ativo = 1
+
+            LIMIT 1
+            """,
+            (lote_id,)
+        )
+
+        return cursor.fetchone()
+
+    finally:
+        conn.close()
+
+
+def listar_historico_piquetes_lote(
+    lote_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                h.id,
+                h.lote_id,
+                h.fazenda_id,
+                h.piquete_id,
+                h.data_inicio,
+                h.data_fim,
+                h.ativo,
+                h.criado_em,
+
+                p.nome AS piquete_nome,
+                p.identificacao
+                    AS piquete_identificacao
+
+            FROM lotes_piquetes_historico AS h
+
+            INNER JOIN piquetes AS p
+                ON p.id = h.piquete_id
+
+            WHERE h.lote_id = ?
+
+            ORDER BY
+                h.data_inicio DESC,
+                h.id DESC
+            """,
+            (lote_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def movimentar_lote_piquete(
+    lote_id,
+    fazenda_id,
+    novo_piquete_id,
+    data_movimentacao
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Confere o lote
+        # --------------------------------------------------
+
+        lote = cursor.execute(
+            """
+            SELECT
+                id,
+                piquete_id
+            FROM lotes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND status = 'ATIVO'
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "Lote não encontrado ou encerrado."
+            )
+
+        # --------------------------------------------------
+        # Confere o novo piquete
+        # --------------------------------------------------
+
+        piquete = cursor.execute(
+            """
+            SELECT id
+            FROM piquetes
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (
+                novo_piquete_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if piquete is None:
+            raise ValueError(
+                "O novo piquete não pertence à fazenda "
+                "selecionada ou está inativo."
+            )
+
+        if lote["piquete_id"] == novo_piquete_id:
+            raise ValueError(
+                "O lote já está neste piquete."
+            )
+
+        # --------------------------------------------------
+        # Busca o vínculo atual
+        # --------------------------------------------------
+
+        atual = cursor.execute(
+            """
+            SELECT
+                id,
+                data_inicio
+            FROM lotes_piquetes_historico
+            WHERE
+                lote_id = ?
+                AND ativo = 1
+            LIMIT 1
+            """,
+            (lote_id,)
+        ).fetchone()
+
+        if atual is None:
+            raise ValueError(
+                "O lote não possui histórico de "
+                "piquete atual."
+            )
+        # --------------------------------------------------
+        # Impede movimentação anterior à entrada atual
+        # --------------------------------------------------
+
+        if (
+            atual["data_inicio"] is not None
+            and data_movimentacao < atual["data_inicio"]
+        ):
+            raise ValueError(
+                "A data da movimentação não pode ser "
+                "anterior à entrada do lote no piquete atual."
+            )
+        # --------------------------------------------------
+        # Fecha o vínculo anterior
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE lotes_piquetes_historico
+
+            SET
+                data_fim = ?,
+                ativo = 0
+
+            WHERE id = ?
+            """,
+            (
+                data_movimentacao,
+                atual["id"]
+            )
+        )
+
+        # --------------------------------------------------
+        # Abre o novo vínculo
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO lotes_piquetes_historico (
+                lote_id,
+                fazenda_id,
+                piquete_id,
+                data_inicio,
+                ativo
+            )
+            VALUES (?, ?, ?, ?, 1)
+            """,
+            (
+                lote_id,
+                fazenda_id,
+                novo_piquete_id,
+                data_movimentacao
+            )
+        )
+
+        # --------------------------------------------------
+        # Atualiza o piquete atual do lote
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE lotes
+
+            SET piquete_id = ?
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                novo_piquete_id,
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    except:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
