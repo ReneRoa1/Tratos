@@ -577,6 +577,105 @@ def criar_tabelas():
             )
         );
     """)
+        # ======================================================
+    # TRATOS PLANEJADOS
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tratos_planejados (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            lote_id INTEGER NOT NULL,
+
+            dieta_id INTEGER NOT NULL,
+
+            misturador_id INTEGER NOT NULL,
+
+            data_trato TEXT NOT NULL,
+
+            numero_animais INTEGER NOT NULL,
+
+            consumo_ms_animal_dia REAL NOT NULL,
+
+            necessidade_ms_lote_kg REAL NOT NULL,
+
+            total_materia_natural_kg REAL NOT NULL,
+
+            densidade_kg_m3 REAL NOT NULL,
+
+            volume_util_m3 REAL NOT NULL,
+
+            capacidade_misturador_kg REAL NOT NULL,
+
+            numero_cargas INTEGER NOT NULL,
+
+            quantidade_media_por_carga_kg REAL NOT NULL,
+
+            status TEXT NOT NULL DEFAULT 'PLANEJADO',
+
+            observacoes TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (lote_id)
+                REFERENCES lotes(id),
+
+            FOREIGN KEY (dieta_id)
+                REFERENCES dietas(id),
+
+            FOREIGN KEY (misturador_id)
+                REFERENCES misturadores(id)
+        );
+    """)
+
+    # ======================================================
+    # ITENS DO TRATO PLANEJADO
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trato_planejado_itens (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            trato_planejado_id INTEGER NOT NULL,
+
+            alimento_id INTEGER NOT NULL,
+
+            alimento_nome TEXT NOT NULL,
+
+            ordem_carregamento INTEGER,
+
+            inclusao_ms_percentual REAL NOT NULL,
+
+            materia_seca_percentual REAL NOT NULL,
+
+            data_ms TEXT NOT NULL,
+
+            quantidade_ms_kg REAL NOT NULL,
+
+            quantidade_mn_kg REAL NOT NULL,
+
+            quantidade_ms_por_carga_kg REAL NOT NULL,
+
+            quantidade_mn_por_carga_kg REAL NOT NULL,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (trato_planejado_id)
+                REFERENCES tratos_planejados(id),
+
+            FOREIGN KEY (alimento_id)
+                REFERENCES alimentos(id)
+        );
+    """)
     # ======================================================
     # CAMPOS DE AUDITORIA
     # ======================================================

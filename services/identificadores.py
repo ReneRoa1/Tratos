@@ -35,3 +35,6 @@ def codigo_trato(trato_id):
 
 def codigo_responsavel(responsavel_id):
     return f"RSP-{responsavel_id:06d}"
+
+def codigo_trato_planejado(id_registro):
+    return f"TRP-{int(id_registro):06d}"
