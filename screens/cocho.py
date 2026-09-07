@@ -8,6 +8,7 @@ from database.models import (
     listar_leituras_cocho_lote,
     consultor_tem_acesso_fazenda,
     usuario_tem_acesso_fazenda,
+        listar_leituras_cocho_fazenda,
 )
 
 from services.calculos import (
@@ -166,7 +167,36 @@ def tela_cocho(page: ft.Page):
     area_historico = ft.Column(
         spacing=10
     )
+    # ======================================================
+    # FILTROS DO RELATÓRIO GERAL
+    # ======================================================
 
+    filtro_lote = ft.Dropdown(
+        label="Filtrar por lote",
+        width=300
+    )
+
+    filtro_data_inicio = ft.TextField(
+        label="Data inicial",
+        hint_text="DD/MM/AAAA",
+        width=180,
+        max_length=10,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        on_change=aplicar_mascara_data
+    )
+
+    filtro_data_fim = ft.TextField(
+        label="Data final",
+        hint_text="DD/MM/AAAA",
+        width=180,
+        max_length=10,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        on_change=aplicar_mascara_data
+    )
+
+    area_relatorio = ft.Column(
+        spacing=10
+    )
     leitura_atual = {
         "nota": None,
         "padrao": None,
@@ -180,6 +210,15 @@ def tela_cocho(page: ft.Page):
     def carregar_lotes():
 
         campo_lote.options.clear()
+
+        filtro_lote.options.clear()
+
+        filtro_lote.options.append(
+            ft.DropdownOption(
+                key="TODOS",
+                text="Todos os lotes"
+            )
+        )
 
         fazenda_id = fazenda_atual_id()
 
@@ -202,6 +241,17 @@ def tela_cocho(page: ft.Page):
                 )
             )
 
+            filtro_lote.options.append(
+                ft.DropdownOption(
+                    key=str(lote["id"]),
+                    text=(
+                        f"{codigo_lote(lote['id'])}"
+                        f" — {lote['nome']}"
+                    )
+                )
+            )
+
+        filtro_lote.value = "TODOS"
     # ======================================================
     # SELECIONAR NOTA
     # ======================================================
@@ -583,7 +633,270 @@ def tela_cocho(page: ft.Page):
         page.update()
 
     campo_lote.on_change = carregar_historico
+        # ======================================================
+    # RELATÓRIO GERAL DE COCHOS
+    # ======================================================
 
+    def carregar_relatorio(e=None):
+
+        area_relatorio.controls.clear()
+
+        if not pode_acessar_fazenda():
+
+            area_relatorio.controls.append(
+                ft.Text(
+                    "Você não possui acesso operacional "
+                    "a esta fazenda.",
+                    color=ft.Colors.RED
+                )
+            )
+
+            page.update()
+            return
+
+        lote_id = None
+
+        if (
+            filtro_lote.value
+            and filtro_lote.value != "TODOS"
+        ):
+
+            lote_id = int(
+                filtro_lote.value
+            )
+
+        data_inicio = None
+        data_fim = None
+
+        if filtro_data_inicio.value:
+
+            data_inicio = (
+                data_interface_para_banco(
+                    filtro_data_inicio.value
+                )
+            )
+
+            if data_inicio is None:
+
+                area_relatorio.controls.append(
+                    ft.Text(
+                        "Data inicial inválida.",
+                        color=ft.Colors.RED
+                    )
+                )
+
+                page.update()
+                return
+
+        if filtro_data_fim.value:
+
+            data_fim = (
+                data_interface_para_banco(
+                    filtro_data_fim.value
+                )
+            )
+
+            if data_fim is None:
+
+                area_relatorio.controls.append(
+                    ft.Text(
+                        "Data final inválida.",
+                        color=ft.Colors.RED
+                    )
+                )
+
+                page.update()
+                return
+
+        leituras = (
+            listar_leituras_cocho_fazenda(
+                fazenda_id=fazenda_atual_id(),
+                lote_id=lote_id,
+                data_inicio=data_inicio,
+                data_fim=data_fim
+            )
+        )
+
+        if not leituras:
+
+            area_relatorio.controls.append(
+                ft.Text(
+                    "Nenhuma leitura encontrada "
+                    "para os filtros selecionados."
+                )
+            )
+
+            page.update()
+            return
+
+        total = len(
+            leituras
+        )
+
+        soma_ajustes = sum(
+            float(
+                leitura[
+                    "ajuste_percentual"
+                ]
+            )
+            for leitura in leituras
+        )
+
+        media_ajuste = (
+            soma_ajustes
+            / total
+        )
+
+        area_relatorio.controls.append(
+            ft.Container(
+                content=ft.Row(
+                    controls=[
+                        ft.Text(
+                            f"Leituras: {total}",
+                            weight=ft.FontWeight.BOLD
+                        ),
+
+                        ft.Text(
+                            (
+                                "Ajuste médio: "
+                                f"{media_ajuste:+.1f}%"
+                            ),
+                            weight=ft.FontWeight.BOLD
+                        )
+                    ],
+                    spacing=30,
+                    wrap=True
+                ),
+
+                padding=12,
+
+                border=ft.Border.all(
+                    1,
+                    ft.Colors.OUTLINE_VARIANT
+                ),
+
+                border_radius=10
+            )
+        )
+
+        for leitura in leituras:
+
+            data = (
+                data_banco_para_interface(
+                    leitura["data_leitura"]
+                )
+            )
+
+            diferenca = (
+                leitura[
+                    "quantidade_recomendada_mn_kg"
+                ]
+                - leitura[
+                    "quantidade_padrao_mn_kg"
+                ]
+            )
+
+            area_relatorio.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Row(
+                                controls=[
+                                    ft.Text(
+                                        codigo_leitura_cocho(
+                                            leitura["id"]
+                                        ),
+                                        weight=ft.FontWeight.BOLD
+                                    ),
+
+                                    ft.Text(
+                                        (
+                                            f"Nota "
+                                            f"{leitura['nota']:+d}"
+                                        ),
+                                        weight=ft.FontWeight.BOLD
+                                    )
+                                ],
+
+                                alignment=(
+                                    ft.MainAxisAlignment
+                                    .SPACE_BETWEEN
+                                )
+                            ),
+
+                            ft.Text(
+                                leitura["lote_nome"],
+                                size=17,
+                                weight=ft.FontWeight.BOLD
+                            ),
+
+                            ft.Text(
+                                f"Data: {data}"
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Ajuste: "
+                                    f"{leitura['ajuste_percentual']:+.0f}%"
+                                )
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Quantidade padrão: "
+                                    f"{leitura['quantidade_padrao_mn_kg']:.2f} "
+                                    "kg MN"
+                                )
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Quantidade recomendada: "
+                                    f"{leitura['quantidade_recomendada_mn_kg']:.2f} "
+                                    "kg MN"
+                                ),
+                                weight=ft.FontWeight.BOLD
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Diferença: "
+                                    f"{diferenca:+.2f} kg"
+                                )
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Responsável: "
+                                    f"{leitura['usuario_nome']}"
+                                )
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Observações: "
+                                    f"{leitura['observacoes']}"
+                                )
+                                if leitura["observacoes"]
+                                else "Observações: —"
+                            )
+                        ],
+
+                        spacing=5
+                    ),
+
+                    padding=14,
+
+                    border=ft.Border.all(
+                        1,
+                        ft.Colors.OUTLINE_VARIANT
+                    ),
+
+                    border_radius=10
+                )
+            )
+
+        page.update()
     # ======================================================
     # INICIALIZAÇÃO
     # ======================================================
@@ -683,7 +996,38 @@ def tela_cocho(page: ft.Page):
                 weight=ft.FontWeight.BOLD
             ),
 
-            area_historico
+            area_historico,
+
+            ft.Divider(),
+
+            ft.Text(
+                "Relatório geral da fazenda",
+                size=22,
+                weight=ft.FontWeight.BOLD
+            ),
+
+            ft.Text(
+                "Consulte as leituras de todos os "
+                "cochos da fazenda."
+            ),
+
+            ft.Row(
+                controls=[
+                    filtro_lote,
+                    filtro_data_inicio,
+                    filtro_data_fim
+                ],
+                spacing=10,
+                wrap=True
+            ),
+
+            ft.Button(
+                content="Gerar relatório",
+                icon=ft.Icons.ASSESSMENT,
+                on_click=carregar_relatorio
+            ),
+
+            area_relatorio
         ],
 
         spacing=15,

@@ -6178,3 +6178,102 @@ def buscar_ultima_leitura_cocho(
 
     finally:
         conn.close()
+
+def listar_leituras_cocho_fazenda(
+    fazenda_id,
+    lote_id=None,
+    data_inicio=None,
+    data_fim=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        filtros = [
+            "lc.fazenda_id = ?"
+        ]
+
+        parametros = [
+            fazenda_id
+        ]
+
+        if lote_id is not None:
+
+            filtros.append(
+                "lc.lote_id = ?"
+            )
+
+            parametros.append(
+                lote_id
+            )
+
+        if data_inicio:
+
+            filtros.append(
+                "lc.data_leitura >= ?"
+            )
+
+            parametros.append(
+                data_inicio
+            )
+
+        if data_fim:
+
+            filtros.append(
+                "lc.data_leitura <= ?"
+            )
+
+            parametros.append(
+                data_fim
+            )
+
+        where_sql = " AND ".join(
+            filtros
+        )
+
+        cursor.execute(
+            f"""
+            SELECT
+                lc.id,
+                lc.fazenda_id,
+                lc.lote_id,
+                lc.usuario_id,
+
+                lc.data_leitura,
+
+                lc.nota,
+                lc.ajuste_percentual,
+
+                lc.quantidade_padrao_mn_kg,
+                lc.quantidade_recomendada_mn_kg,
+
+                lc.observacoes,
+                lc.criado_em,
+
+                l.nome AS lote_nome,
+
+                u.nome AS usuario_nome
+
+            FROM leituras_cocho AS lc
+
+            INNER JOIN lotes AS l
+                ON l.id = lc.lote_id
+
+            INNER JOIN usuarios AS u
+                ON u.id = lc.usuario_id
+
+            WHERE
+                {where_sql}
+
+            ORDER BY
+                lc.data_leitura DESC,
+                lc.id DESC
+            """,
+            tuple(parametros)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
