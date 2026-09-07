@@ -3494,3 +3494,400 @@ def buscar_ms_alimento_na_data(
 
     finally:
         conn.close()
+# ==========================================================
+# DIETAS
+# ==========================================================
+
+def cadastrar_dieta(
+    fazenda_id,
+    nome,
+    itens,
+    observacoes=None
+):
+    """
+    itens:
+    [
+        {
+            "alimento_id": 1,
+            "inclusao_ms": 50.0,
+            "ordem_carregamento": 1
+        },
+        ...
+    ]
+    """
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        nome = (nome or "").strip()
+
+        if not nome:
+            raise ValueError(
+                "Informe o nome da dieta."
+            )
+
+        if not itens:
+            raise ValueError(
+                "A dieta precisa possuir "
+                "pelo menos um ingrediente."
+            )
+
+        # --------------------------------------------------
+        # Valida soma das inclusões
+        # --------------------------------------------------
+
+        soma = sum(
+            float(item["inclusao_ms"])
+            for item in itens
+        )
+
+        if abs(soma - 100.0) > 0.01:
+
+            raise ValueError(
+                f"A soma das inclusões deve ser 100%. "
+                f"Valor atual: {soma:.2f}%."
+            )
+
+        # --------------------------------------------------
+        # Determina a próxima versão
+        # --------------------------------------------------
+
+        registro = cursor.execute(
+            """
+            SELECT MAX(versao) AS ultima_versao
+
+            FROM dietas
+
+            WHERE
+                fazenda_id = ?
+                AND LOWER(nome) = LOWER(?)
+            """,
+            (
+                fazenda_id,
+                nome
+            )
+        ).fetchone()
+
+        ultima_versao = (
+            registro["ultima_versao"]
+            if registro
+            and registro["ultima_versao"]
+            is not None
+            else 0
+        )
+
+        nova_versao = ultima_versao + 1
+
+        # --------------------------------------------------
+        # Ao criar nova versão, arquiva anteriores
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE dietas
+
+            SET status = 'ARQUIVADA'
+
+            WHERE
+                fazenda_id = ?
+                AND LOWER(nome) = LOWER(?)
+                AND status = 'ATIVA'
+            """,
+            (
+                fazenda_id,
+                nome
+            )
+        )
+
+        # --------------------------------------------------
+        # Cria a dieta
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO dietas (
+                fazenda_id,
+                nome,
+                versao,
+                status,
+                observacoes
+            )
+
+            VALUES (?, ?, ?, 'ATIVA', ?)
+            """,
+            (
+                fazenda_id,
+                nome,
+                nova_versao,
+                observacoes
+            )
+        )
+
+        dieta_id = cursor.lastrowid
+
+        # --------------------------------------------------
+        # Cria os ingredientes
+        # --------------------------------------------------
+
+        alimentos_usados = set()
+
+        for item in itens:
+
+            alimento_id = int(
+                item["alimento_id"]
+            )
+
+            inclusao = float(
+                item["inclusao_ms"]
+            )
+
+            ordem = item.get(
+                "ordem_carregamento"
+            )
+
+            if alimento_id in alimentos_usados:
+
+                raise ValueError(
+                    "Um alimento não pode aparecer "
+                    "duas vezes na mesma dieta."
+                )
+
+            alimentos_usados.add(
+                alimento_id
+            )
+
+            alimento = cursor.execute(
+                """
+                SELECT id
+
+                FROM alimentos
+
+                WHERE
+                    id = ?
+                    AND fazenda_id = ?
+                    AND ativo = 1
+
+                LIMIT 1
+                """,
+                (
+                    alimento_id,
+                    fazenda_id
+                )
+            ).fetchone()
+
+            if alimento is None:
+
+                raise ValueError(
+                    "Um dos alimentos selecionados "
+                    "não pertence à fazenda ou está inativo."
+                )
+
+            if inclusao <= 0:
+
+                raise ValueError(
+                    "A inclusão dos ingredientes "
+                    "deve ser maior que zero."
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO dieta_itens (
+                    dieta_id,
+                    alimento_id,
+                    inclusao_ms,
+                    ordem_carregamento
+                )
+
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    dieta_id,
+                    alimento_id,
+                    inclusao,
+                    ordem
+                )
+            )
+
+        conn.commit()
+
+        return dieta_id
+
+    except:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+def listar_dietas_fazenda(
+    fazenda_id,
+    incluir_arquivadas=False
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        filtro = ""
+
+        if not incluir_arquivadas:
+            filtro = (
+                "AND d.status = 'ATIVA'"
+            )
+
+        cursor.execute(
+            f"""
+            SELECT
+                d.id,
+                d.fazenda_id,
+                d.nome,
+                d.versao,
+                d.status,
+                d.observacoes,
+                d.criado_em,
+
+                f.nome AS fazenda_nome
+
+            FROM dietas AS d
+
+            INNER JOIN fazendas AS f
+                ON f.id = d.fazenda_id
+
+            WHERE
+                d.fazenda_id = ?
+                {filtro}
+
+            ORDER BY
+                d.nome,
+                d.versao DESC
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def listar_itens_dieta(
+    dieta_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                di.id,
+                di.dieta_id,
+                di.alimento_id,
+                di.inclusao_ms,
+                di.ordem_carregamento,
+
+                a.nome AS alimento_nome,
+                a.categoria AS alimento_categoria,
+                a.unidade AS alimento_unidade
+
+            FROM dieta_itens AS di
+
+            INNER JOIN dietas AS d
+                ON d.id = di.dieta_id
+
+            INNER JOIN alimentos AS a
+                ON a.id = di.alimento_id
+
+            WHERE
+                di.dieta_id = ?
+                AND d.fazenda_id = ?
+
+            ORDER BY
+                CASE
+                    WHEN di.ordem_carregamento IS NULL
+                    THEN 999999
+                    ELSE di.ordem_carregamento
+                END,
+                di.id
+            """,
+            (
+                dieta_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_dieta_por_id(
+    dieta_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        return conn.execute(
+            """
+            SELECT
+                id,
+                fazenda_id,
+                nome,
+                versao,
+                status,
+                observacoes,
+                criado_em
+
+            FROM dietas
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+
+            LIMIT 1
+            """,
+            (
+                dieta_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+    finally:
+        conn.close()
+
+
+def arquivar_dieta(
+    dieta_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+
+        conn.execute(
+            """
+            UPDATE dietas
+
+            SET status = 'ARQUIVADA'
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                dieta_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+    finally:
+        conn.close()

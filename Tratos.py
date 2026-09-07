@@ -9,6 +9,7 @@ from screens.fazendas import tela_fazendas
 from screens.piquetes import tela_piquetes
 from screens.lotes import tela_lotes
 from screens.alimentos import tela_alimentos
+from screens.dietas import tela_dietas
 from screens.usuarios import tela_usuarios
 from screens.consultores import tela_consultores
 from screens.carteira_consultores import (
@@ -148,6 +149,15 @@ def main(page: ft.Page):
                 tela_alimentos(page)
             )
         # ==========================================
+        # DIETAS
+        # ==========================================
+
+        elif rota == "dietas":
+
+            area_conteudo.controls.append(
+                tela_dietas(page)
+            )
+        # ==========================================
         # USUÁRIOS
         # ==========================================
 
@@ -195,6 +205,7 @@ def main(page: ft.Page):
             )
 
         page.update()
+
 
     # ======================================================
     # HOME

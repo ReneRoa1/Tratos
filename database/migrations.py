@@ -408,6 +408,71 @@ def criar_tabelas():
             )
         );
     """)
+        # ======================================================
+    # DIETAS
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dietas (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            nome TEXT NOT NULL,
+
+            versao INTEGER NOT NULL DEFAULT 1,
+
+            status TEXT NOT NULL DEFAULT 'ATIVA',
+
+            observacoes TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            UNIQUE (
+                fazenda_id,
+                nome,
+                versao
+            )
+        );
+    """)
+
+    # ======================================================
+    # ITENS DA DIETA
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dieta_itens (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            dieta_id INTEGER NOT NULL,
+
+            alimento_id INTEGER NOT NULL,
+
+            inclusao_ms REAL NOT NULL,
+
+            ordem_carregamento INTEGER,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (dieta_id)
+                REFERENCES dietas(id),
+
+            FOREIGN KEY (alimento_id)
+                REFERENCES alimentos(id),
+
+            UNIQUE (
+                dieta_id,
+                alimento_id
+            )
+        );
+    """)
     # ======================================================
     # CAMPOS DE AUDITORIA
     # ======================================================
