@@ -12,6 +12,8 @@ from database.models import (
     cancelar_trato_planejado,
     consultor_tem_acesso_fazenda,
     usuario_tem_acesso_fazenda,
+        registrar_trato_realizado,
+    listar_itens_trato_realizado,
 )
 
 from services.calculos import calcular_trato_planejado
@@ -20,6 +22,8 @@ from services.identificadores import (
     codigo_lote,
     codigo_misturador,
     codigo_trato_planejado,
+        codigo_trato_realizado,
+            codigo_leitura_cocho,
 )
 
 from services.sessao import sessao
@@ -394,10 +398,37 @@ def tela_tratos(page: ft.Page):
 
                         ft.Text(
                             (
-                                "Necessidade total: "
-                                f"{resultado['necessidade_ms_lote_kg']:.2f} "
+                                "Necessidade padrão: "
+                                f"{resultado['necessidade_ms_padrao_kg']:.2f} "
                                 "kg MS/dia"
                             )
+                        ),
+
+                        ft.Text(
+                            (
+                                "Leitura de cocho: "
+                                + (
+                                    f"Nota {resultado['nota_cocho']:+d}"
+                                    if resultado["nota_cocho"] is not None
+                                    else "Nenhuma leitura"
+                                )
+                            )
+                        ),
+
+                        ft.Text(
+                            (
+                                "Ajuste de cocho: "
+                                f"{resultado['ajuste_cocho_percentual']:+.0f}%"
+                            )
+                        ),
+
+                        ft.Text(
+                            (
+                                "Necessidade recomendada: "
+                                f"{resultado['necessidade_ms_lote_kg']:.2f} "
+                                "kg MS/dia"
+                            ),
+                            weight=ft.FontWeight.BOLD
                         ),
 
                         ft.Text(
@@ -781,6 +812,59 @@ def tela_tratos(page: ft.Page):
                     "kg MS/animal/dia"
                 )
             ),
+            ft.Text(
+                (
+                    "Necessidade padrão: "
+                    f"{registro['necessidade_ms_padrao_kg']:.2f} "
+                    "kg MS/dia"
+                )
+                if registro["necessidade_ms_padrao_kg"]
+                is not None
+                else "Necessidade padrão: —"
+            ),
+
+            ft.Text(
+                (
+                    "Leitura de cocho: "
+                    + (
+                        f"{codigo_leitura_cocho(registro['leitura_cocho_id'])}"
+                        if registro["leitura_cocho_id"]
+                        is not None
+                        else "Nenhuma"
+                    )
+                )
+            ),
+
+            ft.Text(
+                (
+                    "Nota de cocho: "
+                    + (
+                        f"{registro['nota_cocho']:+d}"
+                        if registro["nota_cocho"]
+                        is not None
+                        else "—"
+                    )
+                )
+            ),
+
+            ft.Text(
+                (
+                    "Ajuste de cocho: "
+                    f"{registro['ajuste_cocho_percentual']:+.0f}%"
+                )
+                if registro["ajuste_cocho_percentual"]
+                is not None
+                else "Ajuste de cocho: 0%"
+            ),
+
+            ft.Text(
+                (
+                    "Necessidade recomendada: "
+                    f"{registro['necessidade_ms_lote_kg']:.2f} "
+                    "kg MS/dia"
+                ),
+                weight=ft.FontWeight.BOLD
+            ),
 
             ft.Text(
                 (
@@ -892,7 +976,556 @@ def tela_tratos(page: ft.Page):
         )
 
         page.show_dialog(dialogo)
+        # ======================================================
+    # REGISTRAR TRATO REALIZADO
+    # ======================================================
 
+    def abrir_registro_realizado(trato):
+
+        if not pode_acessar_fazenda():
+            return
+
+        if trato["status"] != "PLANEJADO":
+
+            mensagem.value = (
+                "Somente um trato com status PLANEJADO "
+                "pode ser registrado como realizado."
+            )
+
+            mensagem.color = ft.Colors.RED
+
+            page.update()
+            return
+
+        # --------------------------------------------------
+        # Busca dados completos do planejamento
+        # --------------------------------------------------
+
+        planejamento = buscar_trato_planejado(
+            trato_id=trato["id"],
+            fazenda_id=fazenda_atual_id()
+        )
+
+        if planejamento is None:
+            return
+
+        itens_planejados = (
+            listar_itens_trato_planejado(
+                trato_id=trato["id"],
+                fazenda_id=fazenda_atual_id()
+            )
+        )
+
+        if not itens_planejados:
+
+            mensagem.value = (
+                "Este planejamento não possui ingredientes."
+            )
+
+            mensagem.color = ft.Colors.RED
+
+            page.update()
+            return
+
+        # --------------------------------------------------
+        # Campos gerais
+        # --------------------------------------------------
+
+        campo_cargas_realizadas = ft.TextField(
+            label="Número de cargas realizadas",
+            value=str(
+                planejamento["numero_cargas"]
+            ),
+            width=250,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        campo_observacoes_realizado = ft.TextField(
+            label="Observações da execução",
+            hint_text=(
+                "Ex.: ajuste realizado pelo operador"
+            ),
+            width=520,
+            multiline=True,
+            min_lines=2,
+            max_lines=4
+        )
+
+        mensagem_realizado = ft.Text()
+
+        texto_total_realizado = ft.Text(
+            "Total realizado: 0,00 kg",
+            size=17,
+            weight=ft.FontWeight.BOLD
+        )
+
+        texto_diferenca_total = ft.Text(
+            "Diferença total: —"
+        )
+
+        # --------------------------------------------------
+        # Campos dos ingredientes
+        # --------------------------------------------------
+
+        campos_ingredientes = []
+
+        area_ingredientes_realizados = ft.Column(
+            spacing=10
+        )
+
+        def converter_decimal_local(valor):
+
+            if valor is None:
+                return None
+
+            valor = str(valor).strip()
+
+            if not valor:
+                return None
+
+            try:
+
+                return float(
+                    valor.replace(",", ".")
+                )
+
+            except ValueError:
+
+                return None
+
+        # --------------------------------------------------
+        # Atualiza prévia das diferenças
+        # --------------------------------------------------
+
+        def atualizar_previa_realizado(e=None):
+
+            total = 0.0
+
+            for item_campo in campos_ingredientes:
+
+                realizado = converter_decimal_local(
+                    item_campo["campo"].value
+                )
+
+                if realizado is not None:
+                    total += realizado
+
+            planejado_total = float(
+                planejamento[
+                    "total_materia_natural_kg"
+                ]
+            )
+
+            diferenca = (
+                total
+                - planejado_total
+            )
+
+            texto_total_realizado.value = (
+                f"Total realizado: "
+                f"{total:.2f} kg"
+            )
+
+            texto_diferenca_total.value = (
+                f"Diferença total: "
+                f"{diferenca:+.2f} kg"
+            )
+
+            if abs(diferenca) <= 0.01:
+
+                texto_diferenca_total.color = (
+                    ft.Colors.GREEN
+                )
+
+            else:
+
+                texto_diferenca_total.color = (
+                    ft.Colors.ORANGE
+                )
+
+            page.update()
+
+        # --------------------------------------------------
+        # Monta cada ingrediente
+        # --------------------------------------------------
+
+        for item in itens_planejados:
+
+            quantidade_planejada = float(
+                item["quantidade_mn_kg"]
+            )
+
+            campo_realizado = ft.TextField(
+                label="Quantidade realizada (kg)",
+                value=f"{quantidade_planejada:.2f}",
+                width=230,
+                keyboard_type=ft.KeyboardType.NUMBER
+            )
+
+            texto_diferenca = ft.Text(
+                "Diferença: 0,00 kg"
+            )
+
+            item_campo = {
+                "alimento_id":
+                    item["alimento_id"],
+
+                "alimento_nome":
+                    item["alimento_nome"],
+
+                "planejado":
+                    quantidade_planejada,
+
+                "campo":
+                    campo_realizado,
+
+                "texto_diferenca":
+                    texto_diferenca
+            }
+
+            def atualizar_item(
+                e,
+                item_ref=item_campo
+            ):
+
+                realizado = converter_decimal_local(
+                    item_ref["campo"].value
+                )
+
+                if realizado is None:
+
+                    item_ref[
+                        "texto_diferenca"
+                    ].value = (
+                        "Diferença: —"
+                    )
+
+                else:
+
+                    diferenca = (
+                        realizado
+                        - item_ref["planejado"]
+                    )
+
+                    if item_ref["planejado"] > 0:
+
+                        percentual = (
+                            diferenca
+                            / item_ref["planejado"]
+                            * 100.0
+                        )
+
+                        item_ref[
+                            "texto_diferenca"
+                        ].value = (
+                            f"Diferença: "
+                            f"{diferenca:+.2f} kg "
+                            f"({percentual:+.2f}%)"
+                        )
+
+                    else:
+
+                        item_ref[
+                            "texto_diferenca"
+                        ].value = (
+                            f"Diferença: "
+                            f"{diferenca:+.2f} kg"
+                        )
+
+                atualizar_previa_realizado()
+
+            campo_realizado.on_change = (
+                atualizar_item
+            )
+
+            campos_ingredientes.append(
+                item_campo
+            )
+
+            ordem = (
+                item["ordem_carregamento"]
+                if item["ordem_carregamento"]
+                is not None
+                else "—"
+            )
+
+            area_ingredientes_realizados.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Text(
+                                item["alimento_nome"],
+                                size=16,
+                                weight=ft.FontWeight.BOLD
+                            ),
+
+                            ft.Text(
+                                f"Ordem de carregamento: "
+                                f"{ordem}"
+                            ),
+
+                            ft.Text(
+                                (
+                                    "Planejado: "
+                                    f"{quantidade_planejada:.2f} kg"
+                                )
+                            ),
+
+                            campo_realizado,
+
+                            texto_diferenca
+                        ],
+                        spacing=5
+                    ),
+
+                    padding=12,
+
+                    border=ft.Border.all(
+                        1,
+                        ft.Colors.OUTLINE_VARIANT
+                    ),
+
+                    border_radius=10
+                )
+            )
+
+        atualizar_previa_realizado()
+
+        # --------------------------------------------------
+        # Salvar realizado
+        # --------------------------------------------------
+
+        def confirmar_realizado(e):
+
+            try:
+
+                numero_cargas = int(
+                    campo_cargas_realizadas.value
+                )
+
+            except (TypeError, ValueError):
+
+                mensagem_realizado.value = (
+                    "Informe um número válido "
+                    "de cargas realizadas."
+                )
+
+                mensagem_realizado.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
+                return
+
+            if numero_cargas <= 0:
+
+                mensagem_realizado.value = (
+                    "O número de cargas realizadas "
+                    "deve ser maior que zero."
+                )
+
+                mensagem_realizado.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
+                return
+
+            itens_realizados = []
+
+            for item_campo in campos_ingredientes:
+
+                quantidade = converter_decimal_local(
+                    item_campo["campo"].value
+                )
+
+                if quantidade is None:
+
+                    mensagem_realizado.value = (
+                        "Informe a quantidade realizada "
+                        "de todos os ingredientes."
+                    )
+
+                    mensagem_realizado.color = (
+                        ft.Colors.RED
+                    )
+
+                    page.update()
+                    return
+
+                if quantidade < 0:
+
+                    mensagem_realizado.value = (
+                        "A quantidade realizada não pode "
+                        "ser negativa."
+                    )
+
+                    mensagem_realizado.color = (
+                        ft.Colors.RED
+                    )
+
+                    page.update()
+                    return
+
+                itens_realizados.append({
+                    "alimento_id":
+                        item_campo["alimento_id"],
+
+                    "quantidade_realizada_mn_kg":
+                        quantidade
+                })
+
+            observacoes = (
+                campo_observacoes_realizado.value
+                or ""
+            ).strip()
+
+            try:
+
+                realizado_id = (
+                    registrar_trato_realizado(
+                        fazenda_id=(
+                            fazenda_atual_id()
+                        ),
+
+                        trato_planejado_id=(
+                            trato["id"]
+                        ),
+
+                        numero_cargas_realizadas=(
+                            numero_cargas
+                        ),
+
+                        itens_realizados=(
+                            itens_realizados
+                        ),
+
+                        observacoes=(
+                            observacoes
+                            if observacoes
+                            else None
+                        )
+                    )
+                )
+
+            except ValueError as erro:
+
+                mensagem_realizado.value = (
+                    str(erro)
+                )
+
+                mensagem_realizado.color = (
+                    ft.Colors.RED
+                )
+
+                page.update()
+                return
+
+            page.pop_dialog()
+
+            mensagem.value = (
+                f"{codigo_trato_realizado(realizado_id)} "
+                "registrado com sucesso."
+            )
+
+            mensagem.color = ft.Colors.GREEN
+
+            carregar_planejamentos()
+
+        # --------------------------------------------------
+        # Diálogo
+        # --------------------------------------------------
+
+        dialogo = ft.AlertDialog(
+            modal=True,
+
+            title=ft.Text(
+                (
+                    "Registrar realizado — "
+                    f"{codigo_trato_planejado(trato['id'])}"
+                )
+            ),
+
+            content=ft.Column(
+                controls=[
+                    ft.Text(
+                        planejamento["lote_nome"],
+                        size=18,
+                        weight=ft.FontWeight.BOLD
+                    ),
+
+                    ft.Text(
+                        (
+                            "Data: "
+                            f"{data_banco_para_interface(planejamento['data_trato'])}"
+                        )
+                    ),
+
+                    ft.Text(
+                        (
+                            "Dieta: "
+                            f"{planejamento['dieta_nome']} "
+                            f"— V{planejamento['dieta_versao']}"
+                        )
+                    ),
+
+                    ft.Text(
+                        (
+                            "Total planejado: "
+                            f"{planejamento['total_materia_natural_kg']:.2f} kg"
+                        ),
+                        weight=ft.FontWeight.BOLD
+                    ),
+
+                    campo_cargas_realizadas,
+
+                    ft.Divider(),
+
+                    ft.Text(
+                        "Quantidades efetivamente carregadas",
+                        size=18,
+                        weight=ft.FontWeight.BOLD
+                    ),
+
+                    area_ingredientes_realizados,
+
+                    ft.Divider(),
+
+                    texto_total_realizado,
+
+                    texto_diferenca_total,
+
+                    campo_observacoes_realizado,
+
+                    mensagem_realizado
+                ],
+
+                spacing=10,
+                width=580,
+                height=560,
+                scroll=ft.ScrollMode.AUTO
+            ),
+
+            actions=[
+                ft.TextButton(
+                    "Cancelar",
+                    on_click=lambda e:
+                    page.pop_dialog()
+                ),
+
+                ft.Button(
+                    content="Confirmar realizado",
+                    icon=ft.Icons.CHECK,
+                    on_click=confirmar_realizado
+                )
+            ],
+
+            actions_alignment=(
+                ft.MainAxisAlignment.END
+            )
+        )
+
+        page.show_dialog(dialogo)
     # ======================================================
     # CANCELAR
     # ======================================================
@@ -1014,7 +1647,15 @@ def tela_tratos(page: ft.Page):
 
             if planejado:
 
-                botoes.append(
+                botoes.extend([
+                    ft.Button(
+                        content="Registrar realizado",
+                        icon=ft.Icons.CHECK_CIRCLE,
+                        on_click=lambda e,
+                        t=trato:
+                        abrir_registro_realizado(t)
+                    ),
+
                     ft.Button(
                         content="Cancelar",
                         icon=ft.Icons.CANCEL,
@@ -1022,7 +1663,7 @@ def tela_tratos(page: ft.Page):
                         t=trato:
                         confirmar_cancelamento(t)
                     )
-                )
+                ])
 
             lista_planejamentos.controls.append(
                 ft.Container(

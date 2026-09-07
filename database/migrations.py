@@ -600,6 +600,14 @@ def criar_tabelas():
 
             consumo_ms_animal_dia REAL NOT NULL,
 
+            necessidade_ms_padrao_kg REAL,
+
+            leitura_cocho_id INTEGER,
+
+            nota_cocho INTEGER,
+
+            ajuste_cocho_percentual REAL,
+
             necessidade_ms_lote_kg REAL NOT NULL,
 
             total_materia_natural_kg REAL NOT NULL,
@@ -634,6 +642,44 @@ def criar_tabelas():
                 REFERENCES misturadores(id)
         );
     """)
+        # ======================================================
+    # MIGRAÇÃO - DADOS DE COCHO NO TRATO PLANEJADO
+    # ======================================================
+
+    colunas_tratos = {
+        linha["name"]
+        for linha in cursor.execute(
+            "PRAGMA table_info(tratos_planejados)"
+        ).fetchall()
+    }
+
+    if "necessidade_ms_padrao_kg" not in colunas_tratos:
+
+        cursor.execute("""
+            ALTER TABLE tratos_planejados
+            ADD COLUMN necessidade_ms_padrao_kg REAL
+        """)
+
+    if "leitura_cocho_id" not in colunas_tratos:
+
+        cursor.execute("""
+            ALTER TABLE tratos_planejados
+            ADD COLUMN leitura_cocho_id INTEGER
+        """)
+
+    if "nota_cocho" not in colunas_tratos:
+
+        cursor.execute("""
+            ALTER TABLE tratos_planejados
+            ADD COLUMN nota_cocho INTEGER
+        """)
+
+    if "ajuste_cocho_percentual" not in colunas_tratos:
+
+        cursor.execute("""
+            ALTER TABLE tratos_planejados
+            ADD COLUMN ajuste_cocho_percentual REAL
+        """)
 
     # ======================================================
     # ITENS DO TRATO PLANEJADO
@@ -674,6 +720,138 @@ def criar_tabelas():
 
             FOREIGN KEY (alimento_id)
                 REFERENCES alimentos(id)
+        );
+    """)
+        # ======================================================
+    # TRATOS REALIZADOS
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tratos_realizados (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            trato_planejado_id INTEGER NOT NULL,
+
+            lote_id INTEGER NOT NULL,
+
+            dieta_id INTEGER NOT NULL,
+
+            misturador_id INTEGER NOT NULL,
+
+            data_trato TEXT NOT NULL,
+
+            numero_animais INTEGER NOT NULL,
+
+            numero_cargas_planejadas INTEGER NOT NULL,
+
+            numero_cargas_realizadas INTEGER NOT NULL,
+
+            total_planejado_mn_kg REAL NOT NULL,
+
+            total_realizado_mn_kg REAL NOT NULL,
+
+            observacoes TEXT,
+
+            status TEXT NOT NULL DEFAULT 'REALIZADO',
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (trato_planejado_id)
+                REFERENCES tratos_planejados(id),
+
+            FOREIGN KEY (lote_id)
+                REFERENCES lotes(id),
+
+            FOREIGN KEY (dieta_id)
+                REFERENCES dietas(id),
+
+            FOREIGN KEY (misturador_id)
+                REFERENCES misturadores(id),
+
+            UNIQUE (trato_planejado_id)
+        );
+    """)
+
+    # ======================================================
+    # ITENS DO TRATO REALIZADO
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS trato_realizado_itens (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            trato_realizado_id INTEGER NOT NULL,
+
+            alimento_id INTEGER NOT NULL,
+
+            alimento_nome TEXT NOT NULL,
+
+            ordem_carregamento INTEGER,
+
+            quantidade_planejada_mn_kg REAL NOT NULL,
+
+            quantidade_realizada_mn_kg REAL NOT NULL,
+
+            diferenca_kg REAL NOT NULL,
+
+            diferenca_percentual REAL,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (trato_realizado_id)
+                REFERENCES tratos_realizados(id),
+
+            FOREIGN KEY (alimento_id)
+                REFERENCES alimentos(id)
+        );
+    """)
+        # ======================================================
+    # LEITURAS DE COCHO
+    # ======================================================
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS leituras_cocho (
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            fazenda_id INTEGER NOT NULL,
+
+            lote_id INTEGER NOT NULL,
+
+            usuario_id INTEGER NOT NULL,
+
+            data_leitura TEXT NOT NULL,
+
+            nota INTEGER NOT NULL,
+
+            ajuste_percentual REAL NOT NULL,
+
+            quantidade_padrao_mn_kg REAL NOT NULL,
+
+            quantidade_recomendada_mn_kg REAL NOT NULL,
+
+            observacoes TEXT,
+
+            criado_em TEXT NOT NULL
+                DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (fazenda_id)
+                REFERENCES fazendas(id),
+
+            FOREIGN KEY (lote_id)
+                REFERENCES lotes(id),
+
+            FOREIGN KEY (usuario_id)
+                REFERENCES usuarios(id)
         );
     """)
     # ======================================================

@@ -5035,6 +5035,13 @@ def registrar_trato_planejado(
 
                 numero_animais,
                 consumo_ms_animal_dia,
+
+                necessidade_ms_padrao_kg,
+
+                leitura_cocho_id,
+                nota_cocho,
+                ajuste_cocho_percentual,
+
                 necessidade_ms_lote_kg,
 
                 total_materia_natural_kg,
@@ -5112,72 +5119,113 @@ def registrar_trato_planejado(
 
             cursor.execute(
                 """
-                INSERT INTO trato_planejado_itens (
+                INSERT INTO tratos_planejados (
 
-                    trato_planejado_id,
+                    fazenda_id,
+                    lote_id,
+                    dieta_id,
+                    misturador_id,
 
-                    alimento_id,
-                    alimento_nome,
+                    data_trato,
 
-                    ordem_carregamento,
+                    numero_animais,
+                    consumo_ms_animal_dia,
 
-                    inclusao_ms_percentual,
+                    necessidade_ms_padrao_kg,
 
-                    materia_seca_percentual,
-                    data_ms,
+                    leitura_cocho_id,
+                    nota_cocho,
+                    ajuste_cocho_percentual,
 
-                    quantidade_ms_kg,
-                    quantidade_mn_kg,
+                    necessidade_ms_lote_kg,
 
-                    quantidade_ms_por_carga_kg,
-                    quantidade_mn_por_carga_kg
+                    total_materia_natural_kg,
+
+                    densidade_kg_m3,
+                    volume_util_m3,
+                    capacidade_misturador_kg,
+
+                    numero_cargas,
+                    quantidade_media_por_carga_kg,
+
+                    status,
+                    observacoes
                 )
 
                 VALUES (
+                    ?, ?, ?, ?,
                     ?,
                     ?, ?,
                     ?,
+                    ?, ?, ?,
                     ?,
+                    ?,
+                    ?, ?, ?,
                     ?, ?,
-                    ?, ?,
-                    ?, ?
+                    'PLANEJADO',
+                    ?
                 )
                 """,
                 (
-                    trato_id,
+                    resultado_calculo["fazenda_id"],
+                    resultado_calculo["lote_id"],
+                    resultado_calculo["dieta_id"],
+                    resultado_calculo["misturador_id"],
 
-                    ingrediente["alimento_id"],
-                    ingrediente["alimento_nome"],
+                    resultado_calculo["data_referencia"],
 
-                    ingrediente[
-                        "ordem_carregamento"
+                    resultado_calculo["numero_animais"],
+
+                    resultado_calculo[
+                        "consumo_ms_animal_dia"
                     ],
 
-                    ingrediente[
-                        "inclusao_ms_percentual"
+                    resultado_calculo[
+                        "necessidade_ms_padrao_kg"
                     ],
 
-                    ingrediente[
-                        "materia_seca_percentual"
+                    resultado_calculo.get(
+                        "leitura_cocho_id"
+                    ),
+
+                    resultado_calculo.get(
+                        "nota_cocho"
+                    ),
+
+                    resultado_calculo.get(
+                        "ajuste_cocho_percentual",
+                        0.0
+                    ),
+
+                    resultado_calculo[
+                        "necessidade_ms_lote_kg"
                     ],
 
-                    ingrediente["data_ms"],
-
-                    ingrediente[
-                        "quantidade_ms_kg"
+                    resultado_calculo[
+                        "total_materia_natural_kg"
                     ],
 
-                    ingrediente[
-                        "quantidade_mn_kg"
+                    resultado_calculo[
+                        "densidade_kg_m3"
                     ],
 
-                    ingrediente[
-                        "quantidade_ms_por_carga_kg"
+                    resultado_calculo[
+                        "volume_util_m3"
                     ],
 
-                    ingrediente[
-                        "quantidade_mn_por_carga_kg"
-                    ]
+                    resultado_calculo[
+                        "capacidade_misturador_kg"
+                    ],
+
+                    resultado_calculo[
+                        "numero_cargas"
+                    ],
+
+                    resultado_calculo[
+                        "quantidade_media_por_carga_kg"
+                    ],
+
+                    observacoes
                 )
             )
 
@@ -5407,6 +5455,742 @@ def cancelar_trato_planejado(
         )
 
         conn.commit()
+
+    finally:
+        conn.close()
+# ==========================================================
+# TRATOS REALIZADOS
+# ==========================================================
+
+def registrar_trato_realizado(
+    fazenda_id,
+    trato_planejado_id,
+    numero_cargas_realizadas,
+    itens_realizados,
+    observacoes=None
+):
+    """
+    itens_realizados:
+
+    [
+        {
+            "alimento_id": 1,
+            "quantidade_realizada_mn_kg": 1350.0
+        },
+        ...
+    ]
+    """
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Busca planejamento
+        # --------------------------------------------------
+
+        planejamento = cursor.execute(
+            """
+            SELECT
+                tp.id,
+                tp.fazenda_id,
+                tp.lote_id,
+                tp.dieta_id,
+                tp.misturador_id,
+                tp.data_trato,
+                tp.numero_animais,
+                tp.numero_cargas,
+                tp.total_materia_natural_kg,
+                tp.status
+
+            FROM tratos_planejados AS tp
+
+            WHERE
+                tp.id = ?
+                AND tp.fazenda_id = ?
+
+            LIMIT 1
+            """,
+            (
+                trato_planejado_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if planejamento is None:
+
+            raise ValueError(
+                "Trato planejado não encontrado."
+            )
+
+        if planejamento["status"] != "PLANEJADO":
+
+            raise ValueError(
+                "Somente um trato com status PLANEJADO "
+                "pode ser registrado como realizado."
+            )
+
+        # --------------------------------------------------
+        # Evita duplicidade
+        # --------------------------------------------------
+
+        existente = cursor.execute(
+            """
+            SELECT id
+
+            FROM tratos_realizados
+
+            WHERE trato_planejado_id = ?
+
+            LIMIT 1
+            """,
+            (trato_planejado_id,)
+        ).fetchone()
+
+        if existente is not None:
+
+            raise ValueError(
+                "Este planejamento já possui "
+                "um trato realizado."
+            )
+
+        # --------------------------------------------------
+        # Valida número de cargas realizadas
+        # --------------------------------------------------
+
+        try:
+
+            numero_cargas_realizadas = int(
+                numero_cargas_realizadas
+            )
+
+        except (TypeError, ValueError):
+
+            raise ValueError(
+                "Informe um número válido de cargas."
+            )
+
+        if numero_cargas_realizadas <= 0:
+
+            raise ValueError(
+                "O número de cargas realizadas "
+                "deve ser maior que zero."
+            )
+
+        # --------------------------------------------------
+        # Busca ingredientes planejados
+        # --------------------------------------------------
+
+        itens_planejados = cursor.execute(
+            """
+            SELECT
+                id,
+                alimento_id,
+                alimento_nome,
+                ordem_carregamento,
+                quantidade_mn_kg
+
+            FROM trato_planejado_itens
+
+            WHERE trato_planejado_id = ?
+
+            ORDER BY
+                CASE
+                    WHEN ordem_carregamento IS NULL
+                    THEN 999999
+                    ELSE ordem_carregamento
+                END,
+                id
+            """,
+            (trato_planejado_id,)
+        ).fetchall()
+
+        if not itens_planejados:
+
+            raise ValueError(
+                "O planejamento não possui ingredientes."
+            )
+
+        # --------------------------------------------------
+        # Organiza itens informados
+        # --------------------------------------------------
+
+        realizados_por_alimento = {}
+
+        for item in itens_realizados:
+
+            alimento_id = int(
+                item["alimento_id"]
+            )
+
+            try:
+
+                quantidade = float(
+                    item[
+                        "quantidade_realizada_mn_kg"
+                    ]
+                )
+
+            except (TypeError, ValueError):
+
+                raise ValueError(
+                    "Existe uma quantidade realizada inválida."
+                )
+
+            if quantidade < 0:
+
+                raise ValueError(
+                    "A quantidade realizada não pode "
+                    "ser negativa."
+                )
+
+            if alimento_id in realizados_por_alimento:
+
+                raise ValueError(
+                    "Um alimento foi informado duas vezes."
+                )
+
+            realizados_por_alimento[
+                alimento_id
+            ] = quantidade
+
+        # --------------------------------------------------
+        # Todos os alimentos planejados devem estar presentes
+        # --------------------------------------------------
+
+        ids_planejados = {
+            item["alimento_id"]
+            for item in itens_planejados
+        }
+
+        ids_realizados = set(
+            realizados_por_alimento.keys()
+        )
+
+        if ids_planejados != ids_realizados:
+
+            raise ValueError(
+                "Informe a quantidade realizada "
+                "de todos os ingredientes planejados."
+            )
+
+        # --------------------------------------------------
+        # Total realizado
+        # --------------------------------------------------
+
+        total_realizado = sum(
+            realizados_por_alimento.values()
+        )
+
+        # --------------------------------------------------
+        # Cria trato realizado
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO tratos_realizados (
+
+                fazenda_id,
+                trato_planejado_id,
+
+                lote_id,
+                dieta_id,
+                misturador_id,
+
+                data_trato,
+
+                numero_animais,
+
+                numero_cargas_planejadas,
+                numero_cargas_realizadas,
+
+                total_planejado_mn_kg,
+                total_realizado_mn_kg,
+
+                observacoes,
+                status
+            )
+
+            VALUES (
+                ?, ?,
+                ?, ?, ?,
+                ?,
+                ?,
+                ?, ?,
+                ?, ?,
+                ?,
+                'REALIZADO'
+            )
+            """,
+            (
+                fazenda_id,
+                trato_planejado_id,
+
+                planejamento["lote_id"],
+                planejamento["dieta_id"],
+                planejamento["misturador_id"],
+
+                planejamento["data_trato"],
+
+                planejamento["numero_animais"],
+
+                planejamento["numero_cargas"],
+                numero_cargas_realizadas,
+
+                planejamento[
+                    "total_materia_natural_kg"
+                ],
+
+                total_realizado,
+
+                observacoes
+            )
+        )
+
+        trato_realizado_id = (
+            cursor.lastrowid
+        )
+
+        # --------------------------------------------------
+        # Itens realizados
+        # --------------------------------------------------
+
+        for item in itens_planejados:
+
+            planejado = float(
+                item["quantidade_mn_kg"]
+            )
+
+            realizado = (
+                realizados_por_alimento[
+                    item["alimento_id"]
+                ]
+            )
+
+            diferenca = (
+                realizado
+                - planejado
+            )
+
+            if planejado > 0:
+
+                diferenca_percentual = (
+                    diferenca
+                    / planejado
+                    * 100.0
+                )
+
+            else:
+
+                diferenca_percentual = None
+
+            cursor.execute(
+                """
+                INSERT INTO trato_realizado_itens (
+
+                    trato_realizado_id,
+
+                    alimento_id,
+                    alimento_nome,
+
+                    ordem_carregamento,
+
+                    quantidade_planejada_mn_kg,
+                    quantidade_realizada_mn_kg,
+
+                    diferenca_kg,
+                    diferenca_percentual
+                )
+
+                VALUES (
+                    ?,
+                    ?, ?,
+                    ?,
+                    ?, ?,
+                    ?, ?
+                )
+                """,
+                (
+                    trato_realizado_id,
+
+                    item["alimento_id"],
+                    item["alimento_nome"],
+
+                    item["ordem_carregamento"],
+
+                    planejado,
+                    realizado,
+
+                    diferenca,
+                    diferenca_percentual
+                )
+            )
+
+        # --------------------------------------------------
+        # Atualiza status do planejamento
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            UPDATE tratos_planejados
+
+            SET status = 'REALIZADO'
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+            """,
+            (
+                trato_planejado_id,
+                fazenda_id
+            )
+        )
+
+        conn.commit()
+
+        return trato_realizado_id
+
+    except:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+def listar_tratos_realizados_fazenda(
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                tr.id,
+                tr.fazenda_id,
+                tr.trato_planejado_id,
+
+                tr.lote_id,
+                tr.dieta_id,
+                tr.misturador_id,
+
+                tr.data_trato,
+                tr.numero_animais,
+
+                tr.numero_cargas_planejadas,
+                tr.numero_cargas_realizadas,
+
+                tr.total_planejado_mn_kg,
+                tr.total_realizado_mn_kg,
+
+                (
+                    tr.total_realizado_mn_kg
+                    - tr.total_planejado_mn_kg
+                ) AS diferenca_total_kg,
+
+                tr.observacoes,
+                tr.status,
+                tr.criado_em,
+
+                l.nome AS lote_nome,
+
+                d.nome AS dieta_nome,
+                d.versao AS dieta_versao,
+
+                m.nome AS misturador_nome
+
+            FROM tratos_realizados AS tr
+
+            INNER JOIN lotes AS l
+                ON l.id = tr.lote_id
+
+            INNER JOIN dietas AS d
+                ON d.id = tr.dieta_id
+
+            INNER JOIN misturadores AS m
+                ON m.id = tr.misturador_id
+
+            WHERE
+                tr.fazenda_id = ?
+
+            ORDER BY
+                tr.data_trato DESC,
+                tr.id DESC
+            """,
+            (fazenda_id,)
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+def listar_itens_trato_realizado(
+    trato_realizado_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                tri.*
+
+            FROM trato_realizado_itens AS tri
+
+            INNER JOIN tratos_realizados AS tr
+                ON tr.id = tri.trato_realizado_id
+
+            WHERE
+                tri.trato_realizado_id = ?
+                AND tr.fazenda_id = ?
+
+            ORDER BY
+                CASE
+                    WHEN tri.ordem_carregamento IS NULL
+                    THEN 999999
+                    ELSE tri.ordem_carregamento
+                END,
+                tri.id
+            """,
+            (
+                trato_realizado_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+# ==========================================================
+# LEITURAS DE COCHO
+# ==========================================================
+
+def registrar_leitura_cocho(
+    fazenda_id,
+    lote_id,
+    usuario_id,
+    data_leitura,
+    nota,
+    ajuste_percentual,
+    quantidade_padrao_mn_kg,
+    quantidade_recomendada_mn_kg,
+    observacoes=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        # --------------------------------------------------
+        # Valida lote
+        # --------------------------------------------------
+
+        lote = cursor.execute(
+            """
+            SELECT
+                id,
+                status
+
+            FROM lotes
+
+            WHERE
+                id = ?
+                AND fazenda_id = ?
+
+            LIMIT 1
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        ).fetchone()
+
+        if lote is None:
+            raise ValueError(
+                "O lote não pertence à "
+                "fazenda selecionada."
+            )
+
+        if lote["status"] != "ATIVO":
+            raise ValueError(
+                "Não é possível registrar leitura "
+                "de cocho para lote encerrado."
+            )
+
+        # --------------------------------------------------
+        # Valida nota
+        # --------------------------------------------------
+
+        nota = int(nota)
+
+        if nota not in (-2, -1, 0, 1, 2):
+            raise ValueError(
+                "Nota de cocho inválida."
+            )
+
+        # --------------------------------------------------
+        # Salva
+        # --------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO leituras_cocho (
+
+                fazenda_id,
+                lote_id,
+                usuario_id,
+
+                data_leitura,
+
+                nota,
+                ajuste_percentual,
+
+                quantidade_padrao_mn_kg,
+                quantidade_recomendada_mn_kg,
+
+                observacoes
+            )
+
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fazenda_id,
+                lote_id,
+                usuario_id,
+
+                data_leitura,
+
+                nota,
+                ajuste_percentual,
+
+                quantidade_padrao_mn_kg,
+                quantidade_recomendada_mn_kg,
+
+                observacoes
+            )
+        )
+
+        conn.commit()
+
+        return cursor.lastrowid
+
+    finally:
+        conn.close()
+
+
+def listar_leituras_cocho_lote(
+    lote_id,
+    fazenda_id
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT
+                lc.*,
+
+                l.nome AS lote_nome,
+
+                u.nome AS usuario_nome
+
+            FROM leituras_cocho AS lc
+
+            INNER JOIN lotes AS l
+                ON l.id = lc.lote_id
+
+            INNER JOIN usuarios AS u
+                ON u.id = lc.usuario_id
+
+            WHERE
+                lc.lote_id = ?
+                AND lc.fazenda_id = ?
+
+            ORDER BY
+                lc.data_leitura DESC,
+                lc.id DESC
+            """,
+            (
+                lote_id,
+                fazenda_id
+            )
+        )
+
+        return cursor.fetchall()
+
+    finally:
+        conn.close()
+
+
+def buscar_ultima_leitura_cocho(
+    lote_id,
+    fazenda_id,
+    data_referencia=None
+):
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+
+        if data_referencia:
+
+            cursor.execute(
+                """
+                SELECT *
+
+                FROM leituras_cocho
+
+                WHERE
+                    lote_id = ?
+                    AND fazenda_id = ?
+                    AND data_leitura <= ?
+
+                ORDER BY
+                    data_leitura DESC,
+                    id DESC
+
+                LIMIT 1
+                """,
+                (
+                    lote_id,
+                    fazenda_id,
+                    data_referencia
+                )
+            )
+
+        else:
+
+            cursor.execute(
+                """
+                SELECT *
+
+                FROM leituras_cocho
+
+                WHERE
+                    lote_id = ?
+                    AND fazenda_id = ?
+
+                ORDER BY
+                    data_leitura DESC,
+                    id DESC
+
+                LIMIT 1
+                """,
+                (
+                    lote_id,
+                    fazenda_id
+                )
+            )
+
+        return cursor.fetchone()
 
     finally:
         conn.close()

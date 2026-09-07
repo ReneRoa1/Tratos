@@ -38,3 +38,9 @@ def codigo_responsavel(responsavel_id):
 
 def codigo_trato_planejado(id_registro):
     return f"TRP-{int(id_registro):06d}"
+
+def codigo_trato_realizado(id_registro):
+    return f"TRR-{int(id_registro):06d}"
+
+def codigo_leitura_cocho(id_registro):
+    return f"COC-{int(id_registro):06d}"

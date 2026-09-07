@@ -5,6 +5,7 @@ from database.models import (
     listar_itens_dieta,
     buscar_ms_alimento_na_data,
     buscar_calibracao_misturador_dieta_na_data,
+    buscar_ultima_leitura_cocho,
 )
 # ==========================================================
 # MOTOR DE CÁLCULO DO TRATO
@@ -72,7 +73,45 @@ def calcular_trato_planejado(
         numero_animais
         * consumo_ms_animal
     )
+        # ======================================================
+    # AJUSTE DE COCHO
+    # ======================================================
 
+    necessidade_ms_padrao = (
+        necessidade_ms_lote
+    )
+
+    leitura_cocho = (
+        buscar_ultima_leitura_cocho(
+            lote_id=lote_id,
+            fazenda_id=fazenda_id,
+            data_referencia=data_referencia
+        )
+    )
+
+    nota_cocho = None
+    ajuste_cocho_percentual = 0.0
+
+    if leitura_cocho is not None:
+
+        nota_cocho = leitura_cocho["nota"]
+
+        ajuste_cocho_percentual = float(
+            leitura_cocho[
+                "ajuste_percentual"
+            ]
+        )
+
+        fator_ajuste = (
+            1.0
+            + ajuste_cocho_percentual
+            / 100.0
+        )
+
+        necessidade_ms_lote = (
+            necessidade_ms_padrao
+            * fator_ajuste
+        )
     # ======================================================
     # 3. ITENS DA DIETA
     # ======================================================
@@ -318,8 +357,24 @@ def calcular_trato_planejado(
         "consumo_ms_animal_dia":
             consumo_ms_animal,
 
+        "necessidade_ms_padrao_kg":
+            necessidade_ms_padrao,
+
         "necessidade_ms_lote_kg":
             necessidade_ms_lote,
+
+        "nota_cocho":
+            nota_cocho,
+
+        "ajuste_cocho_percentual":
+            ajuste_cocho_percentual,
+
+        "leitura_cocho_id":
+            (
+                leitura_cocho["id"]
+                if leitura_cocho is not None
+                else None
+            ),
 
         "total_materia_natural_kg":
             total_materia_natural,
@@ -341,4 +396,258 @@ def calcular_trato_planejado(
 
         "ingredientes":
             resultado_ingredientes
+    }
+
+# ==========================================================
+# AJUSTE DE COCHO
+# ==========================================================
+
+def calcular_ajuste_cocho(
+    quantidade_padrao_mn_kg,
+    nota
+):
+    """
+    Escala:
+    -2 = +20%
+    -1 = +10%
+     0 =   0%
+    +1 = -10%
+    +2 = -20%
+    """
+
+    ajustes = {
+        -2: 20.0,
+        -1: 10.0,
+        0: 0.0,
+        1: -10.0,
+        2: -20.0,
+    }
+
+    try:
+        nota = int(nota)
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Informe uma nota de cocho válida."
+        )
+
+    if nota not in ajustes:
+        raise ValueError(
+            "A nota de cocho deve estar "
+            "entre -2 e +2."
+        )
+
+    try:
+        quantidade_padrao = float(
+            quantidade_padrao_mn_kg
+        )
+    except (TypeError, ValueError):
+        raise ValueError(
+            "Quantidade padrão inválida."
+        )
+
+    if quantidade_padrao <= 0:
+        raise ValueError(
+            "A quantidade padrão deve ser "
+            "maior que zero."
+        )
+
+    ajuste_percentual = ajustes[nota]
+
+    fator = (
+        1.0
+        + ajuste_percentual / 100.0
+    )
+
+    quantidade_recomendada = (
+        quantidade_padrao
+        * fator
+    )
+
+    return {
+        "nota": nota,
+        "ajuste_percentual":
+            ajuste_percentual,
+
+        "quantidade_padrao_mn_kg":
+            quantidade_padrao,
+
+        "quantidade_recomendada_mn_kg":
+            quantidade_recomendada
+    }
+# ==========================================================
+# QUANTIDADE PADRÃO DO LOTE
+# ==========================================================
+
+def calcular_quantidade_padrao_lote(
+    fazenda_id,
+    lote_id,
+    data_referencia
+):
+    """
+    Calcula a quantidade padrão diária do lote
+    em matéria seca e matéria natural,
+    sem considerar leitura de cocho
+    e sem depender do misturador.
+    """
+
+    consumo = buscar_consumo_lote_na_data(
+        lote_id=lote_id,
+        fazenda_id=fazenda_id,
+        data_referencia=data_referencia
+    )
+
+    if consumo is None:
+        raise ValueError(
+            "O lote não possui dieta e consumo "
+            "vigentes nesta data."
+        )
+
+    numero_animais = int(
+        consumo["numero_animais"]
+    )
+
+    consumo_ms_animal = float(
+        consumo["consumo_ms_animal_dia"]
+    )
+
+    if numero_animais <= 0:
+        raise ValueError(
+            "O lote não possui animais."
+        )
+
+    necessidade_ms_lote = (
+        numero_animais
+        * consumo_ms_animal
+    )
+
+    itens_dieta = listar_itens_dieta(
+        dieta_id=consumo["dieta_id"],
+        fazenda_id=fazenda_id
+    )
+
+    if not itens_dieta:
+        raise ValueError(
+            "A dieta vigente não possui ingredientes."
+        )
+
+    ingredientes = []
+
+    total_mn = 0.0
+    soma_inclusoes = 0.0
+
+    for item in itens_dieta:
+
+        inclusao = float(
+            item["inclusao_ms"]
+        )
+
+        soma_inclusoes += inclusao
+
+        registro_ms = (
+            buscar_ms_alimento_na_data(
+                alimento_id=item["alimento_id"],
+                fazenda_id=fazenda_id,
+                data_referencia=data_referencia
+            )
+        )
+
+        if registro_ms is None:
+
+            raise ValueError(
+                (
+                    f"O alimento "
+                    f"'{item['alimento_nome']}' "
+                    "não possui matéria seca vigente "
+                    "nesta data."
+                )
+            )
+
+        ms_percentual = float(
+            registro_ms["materia_seca"]
+        )
+
+        if (
+            ms_percentual <= 0
+            or ms_percentual > 100
+        ):
+            raise ValueError(
+                (
+                    f"A matéria seca de "
+                    f"'{item['alimento_nome']}' "
+                    "é inválida."
+                )
+            )
+
+        quantidade_ms = (
+            necessidade_ms_lote
+            * inclusao
+            / 100.0
+        )
+
+        quantidade_mn = (
+            quantidade_ms
+            / (ms_percentual / 100.0)
+        )
+
+        total_mn += quantidade_mn
+
+        ingredientes.append({
+            "alimento_id":
+                item["alimento_id"],
+
+            "alimento_nome":
+                item["alimento_nome"],
+
+            "inclusao_ms_percentual":
+                inclusao,
+
+            "materia_seca_percentual":
+                ms_percentual,
+
+            "quantidade_ms_kg":
+                quantidade_ms,
+
+            "quantidade_mn_kg":
+                quantidade_mn,
+        })
+
+    if abs(soma_inclusoes - 100.0) > 0.01:
+
+        raise ValueError(
+            (
+                "A composição da dieta está inválida. "
+                f"Total: {soma_inclusoes:.2f}%."
+            )
+        )
+
+    return {
+        "fazenda_id":
+            fazenda_id,
+
+        "lote_id":
+            lote_id,
+
+        "dieta_id":
+            consumo["dieta_id"],
+
+        "dieta_nome":
+            consumo["dieta_nome"],
+
+        "dieta_versao":
+            consumo["dieta_versao"],
+
+        "numero_animais":
+            numero_animais,
+
+        "consumo_ms_animal_dia":
+            consumo_ms_animal,
+
+        "necessidade_ms_lote_kg":
+            necessidade_ms_lote,
+
+        "quantidade_padrao_mn_kg":
+            total_mn,
+
+        "ingredientes":
+            ingredientes
     }
